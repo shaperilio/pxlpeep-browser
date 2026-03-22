@@ -229,6 +229,9 @@ uniform float uDip,uScale,uOffset,uSMin,uSMax;
 uniform vec3  uWBC;
 uniform vec4  uWBG;
 uniform vec2  uSz;
+uniform vec2  uVP;
+uniform vec2  uPan;
+uniform float uZoom;
 
 vec2 xform(vec2 uv){
   if(uFlipH) uv.x=1.-uv.x;
@@ -267,7 +270,11 @@ vec4 satWarn(float v){
 }
 
 void main(){
-  vec2 uv=xform(vUV);
+  vec2 fragPx=vec2(vUV.x,(1.-vUV.y))*uVP;
+  vec2 dispSz=(uRot==1||uRot==3)?uSz.yx:uSz.xy;
+  vec2 dispUV=(fragPx-uPan)/(uZoom*dispSz);
+  if(dispUV.x<0.||dispUV.x>1.||dispUV.y<0.||dispUV.y>1.){fragColor=vec4(0.1,0.1,0.1,1.);return;}
+  vec2 uv=xform(dispUV);
   vec4 tx=texture(uImg,uv);
   vec2 pc=uv*uSz;
 
@@ -369,7 +376,7 @@ class Renderer {
     const gl = this.gl;
     const names = ["uImg","uLUT","uNChan","uChan","uFn","uPal","uRot",
       "uFlipH","uFlipV","uDip","uScale","uOffset","uSMin","uSMax",
-      "uWBC","uWBG","uSz"];
+      "uWBC","uWBG","uSz","uVP","uPan","uZoom"];
     this.u = {};
     for (const n of names) this.u[n] = gl.getUniformLocation(this.prog, n);
   }
@@ -419,6 +426,9 @@ class Renderer {
     gl.uniform3f(this.u.uWBC, S.wbColor[0], S.wbColor[1], S.wbColor[2]);
     gl.uniform4f(this.u.uWBG, S.wbGrey[0],  S.wbGrey[1],  S.wbGrey[2],  S.wbGrey[3]);
     gl.uniform2f(this.u.uSz, S.image.width, S.image.height);
+    gl.uniform2f(this.u.uVP,   this.canvas.width, this.canvas.height);
+    gl.uniform2f(this.u.uPan,  S.panX, S.panY);
+    gl.uniform1f(this.u.uZoom, S.zoomFactor);
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     gl.bindVertexArray(null);
