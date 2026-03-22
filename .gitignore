@@ -6,3 +6,18 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Node
+node_modules/
+package.json
+package-lock.json
+
+# Test artifacts
+test-viewer.js
+test-image.png
+
+# web-ext build output
+web-ext-artifacts/
+
+# Claude memory
+.claude/
