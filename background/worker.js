@@ -7,6 +7,8 @@ const IMAGE_TYPES = new Set([
   "image/svg+xml", "image/x-portable-pixmap",
 ]);
 
+console.log("[pxlpeep] background script loaded");
+
 browser.webRequest.onHeadersReceived.addListener(
   (details) => {
     if (details.type !== "main_frame") return;
@@ -15,12 +17,16 @@ browser.webRequest.onHeadersReceived.addListener(
       ?.find(h => h.name.toLowerCase() === "content-type")
       ?.value?.split(";")[0].trim().toLowerCase();
 
+    console.log("[pxlpeep] onHeadersReceived", details.url, "ct=", ct);
+
     if (!ct || !IMAGE_TYPES.has(ct)) return;
 
-    browser.tabs.executeScript(details.tabId, {
-      file: "content/main.js",
-    }).catch(err => console.error("pxlpeep inject error:", err));
+    const viewerUrl = browser.runtime.getURL("viewer.html")
+      + "?url=" + encodeURIComponent(details.url);
+    console.log("[pxlpeep] navigating tab to", viewerUrl);
+    browser.tabs.update(details.tabId, { url: viewerUrl });
+    return { cancel: true };
   },
   { urls: ["<all_urls>"], types: ["main_frame"] },
-  ["responseHeaders"]
+  ["responseHeaders", "blocking"]
 );

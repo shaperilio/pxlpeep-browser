@@ -27,7 +27,7 @@ const DELTA_THRESH = 100; // wheel accumulator threshold
 const S = {
   // image
   image: null,          // { width, height, numChannels, bpp, data:Float32Array, minValue, maxValue }
-  imageUrl: location.href,
+  imageUrl: window.__pxlpeepImageUrl || location.href,
   exif: null,           // { make, iso, shutterMs, aperture, date, ev }
 
   // zoom / pan
@@ -1316,6 +1316,7 @@ if(nativeImg) nativeImg.style.display="none";
 // Create canvases
 const glCanvas=document.createElement("canvas");
 const ovCanvas=document.createElement("canvas");
+let renderer;
 
 function sizeCanvases() {
   const w=window.innerWidth, h=window.innerHeight;
@@ -1339,7 +1340,6 @@ ovCanvas.style.cursor="crosshair";
 sizeCanvases();
 
 // WebGL renderer
-let renderer;
 try {
   renderer=new Renderer(glCanvas);
 } catch(e) {

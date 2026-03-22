@@ -11,11 +11,12 @@
   },
   "background": {
     "scripts": ["background/worker.js"],
-    "persistent": false
+    "persistent": true
   },
   "permissions": [
     "webRequest",
     "webRequestBlocking",
+    "tabs",
     "scripting",
     "downloads",
     "<all_urls>"
