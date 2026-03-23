@@ -610,8 +610,10 @@ function readIFD(view, exifStart, ifdOffset, le) {
 
 function computeWBColor(img, x1,y1,x2,y2) {
   const { width, data } = img;
-  const rX=Math.max(0,Math.min(x1,x2)), rY=Math.max(0,Math.min(y1,y2));
-  const rW=Math.abs(x2-x1), rH=Math.abs(y2-y1);
+  const rX=Math.floor(Math.max(0,Math.min(x1,x2)));
+  const rY=Math.floor(Math.max(0,Math.min(y1,y2)));
+  const rW=Math.floor(Math.abs(x2-x1));
+  const rH=Math.floor(Math.abs(y2-y1));
   if (rW<1||rH<1) return S.wbColor;
   const avg=[0,0,0]; let qty=0;
   for (let r=0;r<rH;r++) for (let c=0;c<rW;c++) {
@@ -623,16 +625,18 @@ function computeWBColor(img, x1,y1,x2,y2) {
   const goal=(avg[0]+avg[1]+avg[2])/3;
   if (!goal) return S.wbColor;
   return [
-    goal/Math.max(avg[0],1e-9)*S.wbColor[0],
-    goal/Math.max(avg[1],1e-9)*S.wbColor[1],
-    goal/Math.max(avg[2],1e-9)*S.wbColor[2],
+    goal/Math.max(avg[0],1e-9),
+    goal/Math.max(avg[1],1e-9),
+    goal/Math.max(avg[2],1e-9),
   ];
 }
 
 function computeWBGrey(img, x1,y1,x2,y2) {
   const { width, data } = img;
-  const rX=Math.max(0,Math.min(x1,x2)), rY=Math.max(0,Math.min(y1,y2));
-  const rW=Math.abs(x2-x1), rH=Math.abs(y2-y1);
+  const rX=Math.floor(Math.max(0,Math.min(x1,x2)));
+  const rY=Math.floor(Math.max(0,Math.min(y1,y2)));
+  const rW=Math.floor(Math.abs(x2-x1));
+  const rH=Math.floor(Math.abs(y2-y1));
   if (rW<2||rH<2) return S.wbGrey;
   const avg=[[0,0],[0,0]], qty=[[0,0],[0,0]];
   for (let r=0;r<rH;r++) for (let c=0;c<rW;c++) {
@@ -645,10 +649,10 @@ function computeWBGrey(img, x1,y1,x2,y2) {
   const goal=(avg[0][0]+avg[1][0]+avg[0][1]+avg[1][1])/4;
   if (!goal) return S.wbGrey;
   return [
-    goal/Math.max(avg[0][0],1e-9)*S.wbGrey[0],
-    goal/Math.max(avg[1][0],1e-9)*S.wbGrey[1],
-    goal/Math.max(avg[0][1],1e-9)*S.wbGrey[2],
-    goal/Math.max(avg[1][1],1e-9)*S.wbGrey[3],
+    goal/Math.max(avg[0][0],1e-9),
+    goal/Math.max(avg[1][0],1e-9),
+    goal/Math.max(avg[0][1],1e-9),
+    goal/Math.max(avg[1][1],1e-9),
   ];
 }
 
