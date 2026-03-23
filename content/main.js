@@ -426,7 +426,8 @@ class Renderer {
     gl.uniform3f(this.u.uWBC, S.wbColor[0], S.wbColor[1], S.wbColor[2]);
     gl.uniform4f(this.u.uWBG, S.wbGrey[0],  S.wbGrey[1],  S.wbGrey[2],  S.wbGrey[3]);
     gl.uniform2f(this.u.uSz, S.image.width, S.image.height);
-    gl.uniform2f(this.u.uVP,   this.canvas.width, this.canvas.height);
+    const dpr=window.devicePixelRatio||1;
+    gl.uniform2f(this.u.uVP,   this.canvas.width/dpr, this.canvas.height/dpr);
     gl.uniform2f(this.u.uPan,  S.panX, S.panY);
     gl.uniform1f(this.u.uZoom, S.zoomFactor);
     gl.uniform1f(this.u.uMaxRaw, (1 << S.image.bpp) - 1);
@@ -671,14 +672,19 @@ function viewToImg(vx, vy) {
 }
 
 function drawAll(ctx, ow, oh) {
+  const dpr=window.devicePixelRatio||1;
+  const lw=ow/dpr, lh_=oh/dpr;
   ctx.clearRect(0,0,ow,oh);
+  ctx.save();
+  ctx.scale(dpr,dpr);
   ctx.font = FONT;
-  if (S.showRulers)   drawRulers(ctx, ow, oh);
-  if (S.showColorbar) drawColorbar(ctx, ow, oh);
+  if (S.showRulers)   drawRulers(ctx, lw, lh_);
+  if (S.showColorbar) drawColorbar(ctx, lw, lh_);
   drawROI(ctx);
-  if (S.showInfo)     drawInfoBox(ctx, ow, oh);
-  if (S.showCursor)   drawCursorBox(ctx, ow, oh);
-  if (S.showHelp)     drawHelp(ctx, ow, oh);
+  if (S.showInfo)     drawInfoBox(ctx, lw, lh_);
+  if (S.showCursor)   drawCursorBox(ctx, lw, lh_);
+  if (S.showHelp)     drawHelp(ctx, lw, lh_);
+  ctx.restore();
 }
 
 function lh(ctx) {
@@ -855,12 +861,19 @@ function drawColorbar(ctx, ow, oh) {
 
   blackBox(ctx,bx,by,bw,bh);
 
-  // Draw bar from LUT
-  for(let x=0;x<BAR_W;x++){
-    const i=(S.palette*256+Math.round(x/BAR_W*255))*4;
-    ctx.fillStyle=`rgb(${LUT_DATA[i]},${LUT_DATA[i+1]},${LUT_DATA[i+2]})`;
-    ctx.fillRect(bx+MAR+x, by+MAR+lineH+5, 1, BAR_H);
+  // Draw bar from LUT at physical pixel resolution (putImageData bypasses transform)
+  const dpr=window.devicePixelRatio||1;
+  const physW=Math.round(BAR_W*dpr), physH=Math.round(BAR_H*dpr);
+  const imgData=ctx.createImageData(physW,physH);
+  for(let px=0;px<physW;px++){
+    const i=(S.palette*256+Math.round(px/(physW-1)*255))*4;
+    for(let py=0;py<physH;py++){
+      const d=(py*physW+px)*4;
+      imgData.data[d]=LUT_DATA[i]; imgData.data[d+1]=LUT_DATA[i+1];
+      imgData.data[d+2]=LUT_DATA[i+2]; imgData.data[d+3]=255;
+    }
   }
+  ctx.putImageData(imgData,Math.round((bx+MAR)*dpr),Math.round((by+MAR+lineH+5)*dpr));
 
   ctx.fillStyle="#fff";
   ctx.fillText(minTxt, bx+MAR, by+MAR+lineH);
@@ -1334,10 +1347,11 @@ const ovCanvas=document.createElement("canvas");
 let renderer;
 
 function sizeCanvases() {
+  const dpr=window.devicePixelRatio||1;
   const w=window.innerWidth, h=window.innerHeight;
-  glCanvas.width=w; glCanvas.height=h;
-  ovCanvas.width=w; ovCanvas.height=h;
-  renderer?.resize(w,h);
+  glCanvas.width=w*dpr; glCanvas.height=h*dpr;
+  ovCanvas.width=w*dpr; ovCanvas.height=h*dpr;
+  renderer?.resize(w*dpr,h*dpr);
 }
 
 [glCanvas,ovCanvas].forEach((c,i)=>{
