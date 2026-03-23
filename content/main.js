@@ -1452,5 +1452,8 @@ window.addEventListener("keyup",onKeyUp);
 // Resize
 window.addEventListener("resize",()=>{sizeCanvases();requestFrame();});
 
+// Test hooks
+window.__pxlpeep = { S, computeWBColor, computeWBGrey, recalcScale, loadImage, zoomToFit, zoomTo1to1 };
+
 // Initial frame
 requestFrame();
