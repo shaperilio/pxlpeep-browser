@@ -13,7 +13,7 @@ const Scaling   = { Fit:0, Centered:1, User:2 };
 const ImgFn     = { OneToOne:0, Log10Brighten:1, Log10Darken:2, Brighten:3, Darken:4 };
 const Rotation  = { Zero:0, CCW90:1, CCW180:2, CCW270:3 };
 const Palette   = { Grey:0, GreyInv:1, GreySat:2, GreySatInv:3, ColorExp:4, Color1:5 };
-const PALETTE_NAMES = ["Grey","Inv. grey","Grey+sat","Inv. grey+sat","Color exp.","Colormap 1"];
+const PALETTE_NAMES = ["Grey","Inv. grey","Grey+sat","Inv. grey+sat","Color expansion","Colormap 1"];
 const FN_NAMES  = ["1:1","log brighten","log darken","parabolic brighten","parabolic darken"];
 const CHAN_R=1, CHAN_G=2, CHAN_B=4;
 const ZOOM_STEP = Math.SQRT2;
@@ -190,8 +190,8 @@ function buildLUT() {
           break;
         }
         case Palette.ColorExp:
-          // Simple expansion — in greyscale mode just grey; colour handled in shader
-          data[base]=data[base+1]=data[base+2]=i; data[base+3]=255; break;
+          // simpleExpansion: B=i, G=0, R=0  (matches C++ which gives blue-only for values 0-255)
+          data[base]=0; data[base+1]=0; data[base+2]=i; data[base+3]=255; break;
         case Palette.Color1: {
           const idx = Math.max(0,Math.min(7, i/255*7));
           const lo=Math.floor(idx), hi=Math.ceil(idx);
@@ -272,6 +272,16 @@ vec4 satWarn(float v){
   float g=v/255.; return vec4(g,g,g,1);
 }
 
+// C++ simpleExpansion with maxDisp=16777215: maps [0,255] to 24-bit then extracts R/G/B.
+// For 8-bit images this produces grey (val*0x10101 has R=G=B=val).
+vec4 colorExpand(float mapped){
+  float t=clamp(mapped/255.,0.,1.);
+  float v24=floor(t*16777215.+.5);
+  return vec4(floor(v24/65536.)/255.,
+              floor(mod(v24,65536.)/256.)/255.,
+              mod(v24,256.)/255.,1.);
+}
+
 void main(){
   vec2 fragPx=vec2(vUV.x,(1.-vUV.y))*uVP;
   vec2 dispSz=(uRot==1||uRot==3)?uSz.yx:uSz.xy;
@@ -286,6 +296,7 @@ void main(){
     float wb= cx==0&&cy==0?uWBG.x: cx==1&&cy==0?uWBG.y: cx==0&&cy==1?uWBG.z:uWBG.w;
     float raw=tx.r*uMaxRaw*wb;
     float mapped=(fn(raw)-uOffset)*uScale;
+    if(uPal==4){fragColor=colorExpand(mapped);return;}
     if(uPal==2){fragColor=satWarn(mapped);return;}
     if(uPal==3){fragColor=satWarn(255.-mapped);return;}
     fragColor=lut(mapped); return;
@@ -296,26 +307,30 @@ void main(){
   float rG=aG?tx.g*uMaxRaw*uWBC.g:0.;
   float rB=aB?tx.b*uMaxRaw*uWBC.b:0.;
 
+  // Solo channel: C++ uses translatePixel (full palette color), same as single-channel image.
   int nA=(aR?1:0)+(aG?1:0)+(aB?1:0);
   if(nA==1){
     float solo=aR?rR:aG?rG:rB;
     float mapped=(fn(solo)-uOffset)*uScale;
-    if(uPal==2){fragColor=satWarn(mapped);return;}
-    if(uPal==3){fragColor=satWarn(255.-mapped);return;}
+    if(uPal==4){fragColor=colorExpand(mapped);return;}
     fragColor=lut(mapped); return;
   }
 
+  // Multi-channel (2+ active): mirrors C++ translatePixelMultiChan.
+  // Each output channel gets palette[channelValue*4][0] = blue/first byte of BGRA entry = lut(v).b.
+  // For ColorExpansion: C++ val = floor(m*65793), output = val & 0xFF = floor(m*65793) mod 256.
   float mR=(fn(rR)-uOffset)*uScale;
   float mG=(fn(rG)-uOffset)*uScale;
   float mB=(fn(rB)-uOffset)*uScale;
-
   if(uPal==4){
-    fragColor=vec4(clamp(mR/255.,0.,1.),clamp(mG/255.,0.,1.),clamp(mB/255.,0.,1.),1.);return;
+    fragColor=vec4(
+      mod(floor(clamp(mR,0.,255.)*65793.),256.)/255.,
+      mod(floor(clamp(mG,0.,255.)*65793.),256.)/255.,
+      mod(floor(clamp(mB,0.,255.)*65793.),256.)/255.,
+      1.);
+    return;
   }
-  if(uPal==2){fragColor=satWarn((mR+mG+mB)/3.);return;}
-  if(uPal==3){fragColor=satWarn(255.-(mR+mG+mB)/3.);return;}
-
-  fragColor=vec4(lut(mR).r,lut(mG).g,lut(mB).b,1.);
+  fragColor=vec4(lut(mR).b,lut(mG).b,lut(mB).b,1.);
 }`;
 
 function makeShader(gl, type, src) {
@@ -886,7 +901,7 @@ function drawRulers(ctx, ow, oh) {
 function drawColorbar(ctx, ow, oh) {
   if (!S.image) return;
   const lineH=lh(ctx);
-  const BAR_W=256, BAR_H=10;
+  const BAR_H=10;
 
   let title=PALETTE_NAMES[S.palette];
   const ds=S.dipFactor.toFixed(3);
@@ -897,21 +912,40 @@ function drawColorbar(ctx, ow, oh) {
   if(S.scaling===Scaling.Fit)      title+=" fit";
 
   const minTxt=S.scaleMin.toFixed(1), maxTxt=S.scaleMax.toFixed(1);
+
+  // Dynamic width: grow by 256 until title + min + max labels fit (mirrors C++)
+  let BAR_W=255;
+  while(tw(ctx,title)+tw(ctx,minTxt)+tw(ctx,maxTxt)+50 > BAR_W) BAR_W+=256;
+
   const bw=BAR_W+MAR*2, bh=BAR_H+lineH+5+MAR*2;
   const bx=ow-PAD-bw, by=oh-PAD-bh;
 
   blackBox(ctx,bx,by,bw,bh);
 
-  // Draw bar from LUT at physical pixel resolution (putImageData bypasses transform)
+  // Draw bar iterating over BAR_W logical pixels (matches C++ which iterates barWidth),
+  // then scale each logical pixel to dpr physical pixels to avoid aliasing in ColorExp.
   const dpr=window.devicePixelRatio||1;
   const physW=Math.round(BAR_W*dpr), physH=Math.round(BAR_H*dpr);
   const imgData=ctx.createImageData(physW,physH);
-  for(let px=0;px<physW;px++){
-    const i=(S.palette*256+Math.round(px/(physW-1)*255))*4;
-    for(let py=0;py<physH;py++){
-      const d=(py*physW+px)*4;
-      imgData.data[d]=LUT_DATA[i]; imgData.data[d+1]=LUT_DATA[i+1];
-      imgData.data[d+2]=LUT_DATA[i+2]; imgData.data[d+3]=255;
+  for(let lx=0;lx<BAR_W;lx++){
+    const t = lx===0 ? 0 : lx/(BAR_W-1);
+    const rawVal = S.scaleMin + t*(S.scaleMax-S.scaleMin);
+    const fnVal  = applyFn(rawVal, S.imgFn, S.dipFactor, S.scaleMin, S.scaleMax);
+    const mapped = Math.max(0, Math.min(255, (fnVal-S.offset)*S.scale));
+    let cr, cg, cb;
+    if(S.palette===Palette.ColorExp){
+      const v24=Math.max(0,Math.min(16777215,Math.floor(mapped*65793)));
+      cr=(v24>>16)&0xFF; cg=(v24>>8)&0xFF; cb=v24&0xFF;
+    } else {
+      const i=(S.palette*256+Math.round(mapped))*4;
+      cr=LUT_DATA[i]; cg=LUT_DATA[i+1]; cb=LUT_DATA[i+2];
+    }
+    const pxA=Math.round(lx*dpr), pxB=Math.round((lx+1)*dpr);
+    for(let px=pxA;px<pxB&&px<physW;px++){
+      for(let py=0;py<physH;py++){
+        const d=(py*physW+px)*4;
+        imgData.data[d]=cr; imgData.data[d+1]=cg; imgData.data[d+2]=cb; imgData.data[d+3]=255;
+      }
     }
   }
   ctx.putImageData(imgData,Math.round((bx+MAR)*dpr),Math.round((by+MAR+lineH+5)*dpr));
@@ -1012,10 +1046,10 @@ function onKeyDown(e) {
     case "2": if(ctrl){zoomTo1to1();}else handled=false; break;
 
     case "v":case "V":
-      S.palette=((S.palette+(shift?-1:1))%6+6)%6; break;
+      S.palette=((S.palette+(shift?1:-1))%6+6)%6; break;
 
     case "f":case "F":
-      S.imgFn=((S.imgFn+(shift?-1:1))%5+5)%5;
+      S.imgFn=((S.imgFn+(shift?1:-1))%5+5)%5;
       recalcScale(); break;
 
     case "=":case "+":
@@ -1257,7 +1291,7 @@ function buildToolbar() {
       background:"#333",color:"#ddd",textAlign:"center",
     });
     b.addEventListener("click",e=>{
-      const dir=e.shiftKey?-1:1;
+      const dir=e.shiftKey?1:-1;
       onChange(dir); refresh();
     });
     b._refresh=()=>{ b.textContent=getNames()[getVal()]; };

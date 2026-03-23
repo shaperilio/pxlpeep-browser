@@ -15,6 +15,9 @@ package-lock.json
 # Test artifacts
 test-viewer.js
 test-image.png
+gen-testimage.js
+test-colorbar.js
+test-colorbar-ref.html
 
 # web-ext build output
 web-ext-artifacts/
