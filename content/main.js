@@ -440,6 +440,44 @@ class Renderer {
     this.canvas.width = w;
     this.canvas.height = h;
   }
+
+  // Render at given pixel dimensions with identity pan/zoom (for export).
+  // Caller must restore canvas size (call sizeCanvases()) after reading pixels.
+  drawToSize(w, h) {
+    if (!this.imgTex) return;
+    const gl = this.gl;
+    this.canvas.width = w; this.canvas.height = h;
+    gl.viewport(0, 0, w, h);
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(this.prog);
+    gl.bindVertexArray(this.vao);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.imgTex);
+    gl.uniform1i(this.u.uImg, 0);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.lutTex);
+    gl.uniform1i(this.u.uLUT, 1);
+    gl.uniform1i(this.u.uNChan, S.image.numChannels);
+    gl.uniform1i(this.u.uChan,  S.channels);
+    gl.uniform1i(this.u.uFn,    S.imgFn);
+    gl.uniform1i(this.u.uPal,   S.palette);
+    gl.uniform1i(this.u.uRot,   S.rotation);
+    gl.uniform1i(this.u.uFlipH, S.flipH ? 1 : 0);
+    gl.uniform1i(this.u.uFlipV, S.flipV ? 1 : 0);
+    gl.uniform1f(this.u.uDip,    S.dipFactor);
+    gl.uniform1f(this.u.uScale,  S.scale);
+    gl.uniform1f(this.u.uOffset, S.offset);
+    gl.uniform1f(this.u.uSMin,   S.scaleMin);
+    gl.uniform1f(this.u.uSMax,   S.scaleMax);
+    gl.uniform3f(this.u.uWBC, S.wbColor[0], S.wbColor[1], S.wbColor[2]);
+    gl.uniform4f(this.u.uWBG, S.wbGrey[0],  S.wbGrey[1],  S.wbGrey[2],  S.wbGrey[3]);
+    gl.uniform2f(this.u.uSz, S.image.width, S.image.height);
+    gl.uniform2f(this.u.uVP, w, h);
+    gl.uniform2f(this.u.uPan, 0, 0);
+    gl.uniform1f(this.u.uZoom, 1.0);
+    gl.uniform1f(this.u.uMaxRaw, (1 << S.image.bpp) - 1);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    gl.bindVertexArray(null);
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1051,23 +1089,53 @@ function save(mode) {
   const name=S.imageUrl.split("/").pop()?.replace(/\.[^.]+$/,"")||"image";
 
   if(mode==="original") {
-    const a=document.createElement("a");
-    a.href=S.imageUrl; a.download=S.imageUrl.split("/").pop()||"image"; a.click();
+    const filename=S.imageUrl.split("/").pop()||"image";
+    fetch(S.imageUrl)
+      .then(r=>r.blob())
+      .then(blob=>{
+        const blobUrl=URL.createObjectURL(blob);
+        const a=document.createElement("a");
+        a.href=blobUrl; a.download=filename; a.click();
+        URL.revokeObjectURL(blobUrl);
+      });
     return;
   }
 
-  // Composite: WebGL + overlay for screenshot
+  if(mode==="mapped") {
+    if(!S.image||!renderer) return;
+    const rot=S.rotation;
+    const outW=(rot===1||rot===3)?S.image.height:S.image.width;
+    const outH=(rot===1||rot===3)?S.image.width :S.image.height;
+    const ext=(S.imageUrl.split("?")[0].split(".").pop()||"").toLowerCase();
+    const mimeMap={jpg:"image/jpeg",jpeg:"image/jpeg",webp:"image/webp",png:"image/png"};
+    const mime=mimeMap[ext]||"image/png";
+    const extOut=mime==="image/jpeg"?"jpg":mime==="image/webp"?"webp":"png";
+    renderer.drawToSize(outW,outH);
+    const out=document.createElement("canvas");
+    out.width=outW; out.height=outH;
+    out.getContext("2d").drawImage(glCanvas,0,0,outW,outH,0,0,outW,outH);
+    sizeCanvases(); requestFrame();
+    out.toBlob(blob=>{
+      if(!blob)return;
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");
+      a.href=url; a.download=`${name}_mapped_${Date.now()}.${extOut}`; a.click();
+      URL.revokeObjectURL(url);
+    },mime,mime==="image/jpeg"?0.95:undefined);
+    return;
+  }
+
+  // screenshot: composite WebGL + overlay at current viewport size
   const out=document.createElement("canvas");
   out.width=glCanvas.width; out.height=glCanvas.height;
   const ctx=out.getContext("2d");
   ctx.drawImage(glCanvas,0,0);
-  if(mode==="screenshot") ctx.drawImage(ovCanvas,0,0);
-
+  ctx.drawImage(ovCanvas,0,0);
   out.toBlob(blob=>{
     if(!blob)return;
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");
-    a.href=url; a.download=`${name}_${mode}_${Date.now()}.png`; a.click();
+    a.href=url; a.download=`${name}_screenshot_${Date.now()}.png`; a.click();
     URL.revokeObjectURL(url);
   },"image/png");
 }
