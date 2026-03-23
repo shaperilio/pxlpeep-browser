@@ -1018,7 +1018,7 @@ function onKeyDown(e) {
       handled=false; break;
   }
 
-  if(handled){e.preventDefault();e.stopPropagation();}
+  if(handled){e.preventDefault();e.stopPropagation();refreshToolbar();}
   requestFrame();
 }
 
