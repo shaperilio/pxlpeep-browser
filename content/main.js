@@ -67,6 +67,9 @@ const S = {
   // ROI (in image coordinates)
   roi: { x1:0,y1:0,x2:0,y2:0, valid:false },
 
+  // save options
+  forceJpeg: false,
+
   // coordinate system
   yFlip: false,
   zeroIdx: true,
@@ -1089,15 +1092,37 @@ function save(mode) {
   const name=S.imageUrl.split("/").pop()?.replace(/\.[^.]+$/,"")||"image";
 
   if(mode==="original") {
-    const filename=S.imageUrl.split("/").pop()||"image";
-    fetch(S.imageUrl)
-      .then(r=>r.blob())
-      .then(blob=>{
+    const basename=S.imageUrl.split("/").pop()?.replace(/\.[^.]+$/,"")||"image";
+    if(!S.forceJpeg) {
+      const filename=S.imageUrl.split("/").pop()||"image";
+      fetch(S.imageUrl)
+        .then(r=>r.blob())
+        .then(blob=>{
+          const blobUrl=URL.createObjectURL(blob);
+          const a=document.createElement("a");
+          a.href=blobUrl; a.download=filename; a.click();
+          URL.revokeObjectURL(blobUrl);
+        });
+    } else {
+      fetch(S.imageUrl).then(r=>r.blob()).then(blob=>{
         const blobUrl=URL.createObjectURL(blob);
-        const a=document.createElement("a");
-        a.href=blobUrl; a.download=filename; a.click();
-        URL.revokeObjectURL(blobUrl);
+        const img=new Image();
+        img.onload=()=>{
+          const c=document.createElement("canvas");
+          c.width=img.naturalWidth; c.height=img.naturalHeight;
+          c.getContext("2d").drawImage(img,0,0);
+          c.toBlob(b=>{
+            if(!b)return;
+            const url=URL.createObjectURL(b);
+            const a=document.createElement("a");
+            a.href=url; a.download=`${basename}.jpg`; a.click();
+            URL.revokeObjectURL(url);
+          },"image/jpeg",0.95);
+          URL.revokeObjectURL(blobUrl);
+        };
+        img.src=blobUrl;
       });
+    }
     return;
   }
 
@@ -1108,7 +1133,7 @@ function save(mode) {
     const outH=(rot===1||rot===3)?S.image.width :S.image.height;
     const ext=(S.imageUrl.split("?")[0].split(".").pop()||"").toLowerCase();
     const mimeMap={jpg:"image/jpeg",jpeg:"image/jpeg",webp:"image/webp",png:"image/png"};
-    const mime=mimeMap[ext]||"image/png";
+    const mime=S.forceJpeg?"image/jpeg":(mimeMap[ext]||"image/png");
     const extOut=mime==="image/jpeg"?"jpg":mime==="image/webp"?"webp":"png";
     renderer.drawToSize(outW,outH);
     const out=document.createElement("canvas");
@@ -1352,6 +1377,15 @@ function buildToolbar() {
   saveRow.appendChild(btn("📷 screenshot","Save screenshot",()=>save("screenshot")));
   tb.appendChild(saveRow);
 
+  const jpegRow=document.createElement("label");
+  Object.assign(jpegRow.style,{display:"flex",alignItems:"center",gap:"5px",paddingTop:"3px",fontSize:"11px",color:"#ccc",cursor:"pointer"});
+  const jpegCb=document.createElement("input");
+  jpegCb.type="checkbox"; jpegCb.checked=S.forceJpeg;
+  jpegCb.addEventListener("change",()=>{S.forceJpeg=jpegCb.checked;});
+  jpegRow.appendChild(jpegCb);
+  jpegRow.appendChild(document.createTextNode("Force JPEG output (original + mapped)"));
+  tb.appendChild(jpegRow);
+
   // ── Float button (collapsed state) ──
   const floatBtn=document.createElement("button");
   floatBtn.textContent="▼ pxlpeep";
@@ -1377,6 +1411,7 @@ function buildToolbar() {
     flipH2._setActive(S.flipH); flipV2._setActive(S.flipV);
     togInfo._setActive(S.showInfo); togRul._setActive(S.showRulers);
     togCbar._setActive(S.showColorbar); togCur._setActive(S.showCursor);
+    jpegCb.checked=S.forceJpeg;
     if(S.exif){
       const e=S.exif; let html="";
       if(e.make) html+=`<div>${e.make}</div>`;
