@@ -225,7 +225,7 @@ uniform sampler2D uImg;
 uniform sampler2D uLUT;
 uniform int  uNChan,uChan,uFn,uPal,uRot;
 uniform bool uFlipH,uFlipV;
-uniform float uDip,uScale,uOffset,uSMin,uSMax;
+uniform float uDip,uScale,uOffset,uSMin,uSMax,uMaxRaw;
 uniform vec3  uWBC;
 uniform vec4  uWBG;
 uniform vec2  uSz;
@@ -281,7 +281,7 @@ void main(){
   if(uNChan==1){
     int cx=int(mod(pc.x,2.)),cy=int(mod(pc.y,2.));
     float wb= cx==0&&cy==0?uWBG.x: cx==1&&cy==0?uWBG.y: cx==0&&cy==1?uWBG.z:uWBG.w;
-    float raw=tx.r*65535.*wb;
+    float raw=tx.r*uMaxRaw*wb;
     float mapped=(fn(raw)-uOffset)*uScale;
     if(uPal==2){fragColor=satWarn(mapped);return;}
     if(uPal==3){fragColor=satWarn(255.-mapped);return;}
@@ -289,9 +289,9 @@ void main(){
   }
 
   bool aR=(uChan&1)!=0,aG=(uChan&2)!=0,aB=(uChan&4)!=0;
-  float rR=aR?tx.r*65535.*uWBC.r:0.;
-  float rG=aG?tx.g*65535.*uWBC.g:0.;
-  float rB=aB?tx.b*65535.*uWBC.b:0.;
+  float rR=aR?tx.r*uMaxRaw*uWBC.r:0.;
+  float rG=aG?tx.g*uMaxRaw*uWBC.g:0.;
+  float rB=aB?tx.b*uMaxRaw*uWBC.b:0.;
 
   int nA=(aR?1:0)+(aG?1:0)+(aB?1:0);
   if(nA==1){
@@ -376,7 +376,7 @@ class Renderer {
     const gl = this.gl;
     const names = ["uImg","uLUT","uNChan","uChan","uFn","uPal","uRot",
       "uFlipH","uFlipV","uDip","uScale","uOffset","uSMin","uSMax",
-      "uWBC","uWBG","uSz","uVP","uPan","uZoom"];
+      "uWBC","uWBG","uSz","uVP","uPan","uZoom","uMaxRaw"];
     this.u = {};
     for (const n of names) this.u[n] = gl.getUniformLocation(this.prog, n);
   }
@@ -429,6 +429,7 @@ class Renderer {
     gl.uniform2f(this.u.uVP,   this.canvas.width, this.canvas.height);
     gl.uniform2f(this.u.uPan,  S.panX, S.panY);
     gl.uniform1f(this.u.uZoom, S.zoomFactor);
+    gl.uniform1f(this.u.uMaxRaw, (1 << S.image.bpp) - 1);
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     gl.bindVertexArray(null);
