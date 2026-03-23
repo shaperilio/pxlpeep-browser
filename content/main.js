@@ -1441,8 +1441,8 @@ ovCanvas.addEventListener("contextmenu",e=>e.preventDefault());
 ovCanvas.addEventListener("wheel",e=>{
   e.preventDefault();
   wheelAcc+=e.deltaY;
-  if(wheelAcc<-DELTA_THRESH){wheelAcc=0;zoomAt(+1,e.clientX,e.clientY);}
-  else if(wheelAcc>DELTA_THRESH){wheelAcc=0;zoomAt(-1,e.clientX,e.clientY);}
+  if(wheelAcc<-DELTA_THRESH){wheelAcc=0;zoomAt(+1,e.clientX,e.clientY);refreshToolbar();}
+  else if(wheelAcc>DELTA_THRESH){wheelAcc=0;zoomAt(-1,e.clientX,e.clientY);refreshToolbar();}
 },{passive:false});
 
 // Keyboard
