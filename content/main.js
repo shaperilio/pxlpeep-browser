@@ -502,50 +502,67 @@ class Renderer {
 // IMAGE LOADING
 // ══════════════════════════════════════════════════════════════════════════════
 
+// Fetch the source bytes exactly once. Pixel decode, EXIF, and save all reuse
+// this single Blob, so a view costs one network request instead of 2–3.
+let _sourceBlobPromise = null;
+function getSourceBlob(url) {
+  if (!_sourceBlobPromise) {
+    _sourceBlobPromise = fetch(url).then(r => {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.blob();
+    });
+  }
+  return _sourceBlobPromise;
+}
+
 function loadImage(url) {
   return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      const c = document.createElement("canvas");
-      c.width = img.naturalWidth; c.height = img.naturalHeight;
-      const ctx = c.getContext("2d");
-      ctx.drawImage(img, 0, 0);
-      const id = ctx.getImageData(0, 0, c.width, c.height);
-      const { width, height, data } = id;
+    getSourceBlob(url).then(blob => {
+      // Decode from a same-origin blob URL: no CORS request, no canvas taint.
+      const blobUrl = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement("canvas");
+        c.width = img.naturalWidth; c.height = img.naturalHeight;
+        const ctx = c.getContext("2d");
+        ctx.drawImage(img, 0, 0);
+        URL.revokeObjectURL(blobUrl);
+        const id = ctx.getImageData(0, 0, c.width, c.height);
+        const { width, height, data } = id;
 
-      // Detect greyscale
-      let grey = true;
-      for (let i=0; i<data.length; i+=4) {
-        if (data[i]!==data[i+1] || data[i]!==data[i+2]) { grey=false; break; }
-      }
-
-      const nChan = grey ? 1 : 3;
-      const floats = new Float32Array(width*height*nChan);
-      let minV=255, maxV=0;
-
-      for (let i=0; i<width*height; i++) {
-        const s=i*4;
-        if (nChan===1) {
-          const v = data[s]/255;
-          floats[i] = v;
-          if (data[s]<minV) minV=data[s];
-          if (data[s]>maxV) maxV=data[s];
-        } else {
-          floats[i*3]   = data[s]/255;
-          floats[i*3+1] = data[s+1]/255;
-          floats[i*3+2] = data[s+2]/255;
-          const lum = data[s]*0.299+data[s+1]*0.587+data[s+2]*0.114;
-          if (lum<minV) minV=lum;
-          if (lum>maxV) maxV=lum;
+        // Detect greyscale
+        let grey = true;
+        for (let i=0; i<data.length; i+=4) {
+          if (data[i]!==data[i+1] || data[i]!==data[i+2]) { grey=false; break; }
         }
-      }
 
-      resolve({ width, height, numChannels:nChan, bpp:8,
-                data:floats, minValue:minV, maxValue:maxV });
-    };
-    img.onerror = () => reject(new Error("Failed to load image"));
-    img.src = url;
+        const nChan = grey ? 1 : 3;
+        const floats = new Float32Array(width*height*nChan);
+        let minV=255, maxV=0;
+
+        for (let i=0; i<width*height; i++) {
+          const s=i*4;
+          if (nChan===1) {
+            const v = data[s]/255;
+            floats[i] = v;
+            if (data[s]<minV) minV=data[s];
+            if (data[s]>maxV) maxV=data[s];
+          } else {
+            floats[i*3]   = data[s]/255;
+            floats[i*3+1] = data[s+1]/255;
+            floats[i*3+2] = data[s+2]/255;
+            const lum = data[s]*0.299+data[s+1]*0.587+data[s+2]*0.114;
+            if (lum<minV) minV=lum;
+            if (lum>maxV) maxV=lum;
+          }
+        }
+
+        resolve({ width, height, numChannels:nChan, bpp:8,
+                  data:floats, minValue:minV, maxValue:maxV });
+      };
+      img.onerror = () => { URL.revokeObjectURL(blobUrl); reject(new Error("Failed to load image")); };
+      img.src = blobUrl;
+    }).catch(reject);
   });
 }
 
@@ -555,8 +572,8 @@ function loadImage(url) {
 
 async function extractExif(url) {
   try {
-    const resp = await fetch(url);
-    const buf  = await resp.arrayBuffer();
+    const blob = await getSourceBlob(url);
+    const buf  = await blob.arrayBuffer();
     const view = new DataView(buf);
 
     // Must be JPEG (FFD8)
@@ -1129,8 +1146,7 @@ function save(mode) {
     const basename=S.imageUrl.split("/").pop()?.replace(/\.[^.]+$/,"")||"image";
     if(!S.forceJpeg) {
       const filename=S.imageUrl.split("/").pop()||"image";
-      fetch(S.imageUrl)
-        .then(r=>r.blob())
+      getSourceBlob(S.imageUrl)
         .then(blob=>{
           const blobUrl=URL.createObjectURL(blob);
           const a=document.createElement("a");
@@ -1138,7 +1154,7 @@ function save(mode) {
           URL.revokeObjectURL(blobUrl);
         });
     } else {
-      fetch(S.imageUrl).then(r=>r.blob()).then(blob=>{
+      getSourceBlob(S.imageUrl).then(blob=>{
         const blobUrl=URL.createObjectURL(blob);
         const img=new Image();
         img.onload=()=>{
