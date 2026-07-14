@@ -19,6 +19,7 @@
     "tabs",
     "scripting",
     "downloads",
+    "contextMenus",
     "<all_urls>"
   ],
   "web_accessible_resources": ["content/*"]
