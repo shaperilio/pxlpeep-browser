@@ -502,15 +502,32 @@ class Renderer {
 // IMAGE LOADING
 // ══════════════════════════════════════════════════════════════════════════════
 
+// Errors carry a `kind` so the UI can explain what actually went wrong.
+class FetchError extends Error {
+  constructor(kind, message, status) { super(message); this.kind = kind; this.status = status; }
+}
+const FETCH_TIMEOUT_MS = 30000;
+
 // Fetch the source bytes exactly once. Pixel decode, EXIF, and save all reuse
 // this single Blob, so a view costs one network request instead of 2–3.
 let _sourceBlobPromise = null;
 function getSourceBlob(url) {
   if (!_sourceBlobPromise) {
-    _sourceBlobPromise = fetch(url).then(r => {
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      return r.blob();
-    });
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+    _sourceBlobPromise = fetch(url, { signal: ctrl.signal })
+      .then(r => {
+        if (!r.ok) throw new FetchError("http", `Server returned ${r.status} ${r.statusText}`.trim(), r.status);
+        return r.blob();
+      })
+      .catch(e => {
+        if (e instanceof FetchError) throw e;
+        if (e.name === "AbortError") throw new FetchError("timeout", `Timed out after ${FETCH_TIMEOUT_MS / 1000}s`);
+        throw new FetchError("network", "Network error — could not reach the host");
+      })
+      .finally(() => clearTimeout(timer));
+    // Drop the cached rejection on failure so a Retry re-fetches cleanly.
+    _sourceBlobPromise.catch(() => { _sourceBlobPromise = null; });
   }
   return _sourceBlobPromise;
 }
@@ -560,7 +577,7 @@ function loadImage(url) {
         resolve({ width, height, numChannels:nChan, bpp:8,
                   data:floats, minValue:minV, maxValue:maxV });
       };
-      img.onerror = () => { URL.revokeObjectURL(blobUrl); reject(new Error("Failed to load image")); };
+      img.onerror = () => { URL.revokeObjectURL(blobUrl); reject(new FetchError("decode", "Downloaded, but couldn't decode the image (unsupported format or corrupt data)")); };
       img.src = blobUrl;
     }).catch(reject);
   });
@@ -1550,20 +1567,68 @@ function requestFrame() {
 // Load image
 const refreshToolbar=buildToolbar();
 
-loadImage(S.imageUrl).then(img=>{
-  S.image=img;
-  S.userMin=0; S.userMax=(1<<img.bpp)-1;
-  recalcScale();
-  renderer?.upload(img.data, img.width, img.height, img.numChannels);
-  zoomToFit();
-  refreshToolbar();
-  requestFrame();
-});
+// ── Status / error overlay ──────────────────────────────────────────────────
+// A single centered DOM element (not canvas) so it works before the WebGL
+// renderer exists and survives a GL failure. Used for both "Loading…" and errors.
+let statusEl=null;
+function setStatus(node){
+  clearStatus();
+  statusEl=document.createElement("div");
+  Object.assign(statusEl.style,{position:"fixed",top:"50%",left:"50%",transform:"translate(-50%,-50%)",
+    zIndex:"2147483647",color:"#eee",background:"#222",padding:"20px 24px",borderRadius:"8px",
+    font:"14px/1.5 system-ui,sans-serif",textAlign:"center",maxWidth:"80vw",
+    boxShadow:"0 4px 24px rgba(0,0,0,.5)"});
+  if(typeof node==="string") statusEl.textContent=node; else statusEl.appendChild(node);
+  document.body.appendChild(statusEl);
+}
+function clearStatus(){ statusEl?.remove(); statusEl=null; }
 
-// EXIF async
-extractExif(S.imageUrl).then(exif=>{
-  if(exif){S.exif=exif; refreshToolbar();}
-});
+function errorMessage(err){
+  if(err?.kind==="http"){
+    if(err.status===503||err.status===429) return `${err.message}.\nThe host may be throttling requests — try again in a moment.`;
+    if(err.status===404) return `${err.message}.\nThe image no longer exists at this URL.`;
+    if(err.status===403) return `${err.message}.\nAccess to this image was denied.`;
+    return err.message+".";
+  }
+  if(err?.kind) return err.message+".";
+  return "Failed to load image.";
+}
+function showLoadError(err){
+  const box=document.createElement("div");
+  const msg=document.createElement("div");
+  msg.textContent=errorMessage(err);
+  msg.style.whiteSpace="pre-line";
+  const url=document.createElement("div");
+  url.textContent=S.imageUrl;
+  Object.assign(url.style,{marginTop:"10px",color:"#888",fontSize:"11px",wordBreak:"break-all"});
+  const retry=document.createElement("button");
+  retry.textContent="Retry";
+  Object.assign(retry.style,{marginTop:"14px",padding:"6px 18px",cursor:"pointer",
+    border:"1px solid #555",borderRadius:"6px",background:"#333",color:"#eee",font:"13px system-ui,sans-serif"});
+  retry.onclick=startLoad;
+  box.append(msg,url,retry);
+  setStatus(box);
+}
+
+function startLoad(){
+  setStatus("Loading…");
+  loadImage(S.imageUrl).then(img=>{
+    clearStatus();
+    S.image=img;
+    S.userMin=0; S.userMax=(1<<img.bpp)-1;
+    recalcScale();
+    renderer?.upload(img.data, img.width, img.height, img.numChannels);
+    zoomToFit();
+    refreshToolbar();
+    requestFrame();
+  }).catch(showLoadError);
+
+  // EXIF async (best-effort; shares the single fetch, never surfaces errors)
+  extractExif(S.imageUrl).then(exif=>{
+    if(exif){S.exif=exif; refreshToolbar();}
+  });
+}
+startLoad();
 
 // ── Mouse events ──────────────────────────────────────────────────────────────
 let panDrag=null, roiDrag=null, wheelAcc=0;
