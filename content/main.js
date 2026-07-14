@@ -507,18 +507,40 @@ class FetchError extends Error {
   constructor(kind, message, status) { super(message); this.kind = kind; this.status = status; }
 }
 const FETCH_TIMEOUT_MS = 30000;
+const RETRYABLE_STATUS = new Set([429, 502, 503, 504]); // transient server states
+const MAX_RETRIES = 3;
 
-// Fetch the source bytes exactly once. Pixel decode, EXIF, and save all reuse
-// this single Blob, so a view costs one network request instead of 2–3.
+// Delay before the next attempt: honor Retry-After (delta-seconds or HTTP-date,
+// capped at 30s) when the server sends it, otherwise exponential backoff + jitter.
+function retryDelayMs(resp, attempt) {
+  const ra = resp.headers.get("retry-after");
+  if (ra) {
+    const s = /^\d+$/.test(ra.trim()) ? +ra : (Date.parse(ra) - Date.now()) / 1000;
+    if (s > 0) return Math.min(s, 30) * 1000;
+  }
+  return Math.min(8000, 500 * 2 ** attempt) + Math.random() * 250;
+}
+
+// Fetch the source bytes exactly once, auto-retrying transient server errors
+// (429/502/503/504) with backoff. Pixel decode, EXIF, and save reuse the Blob.
 let _sourceBlobPromise = null;
 function getSourceBlob(url) {
-  if (!_sourceBlobPromise) {
+  if (_sourceBlobPromise) return _sourceBlobPromise;
+
+  let attempt = 0;
+  const attemptFetch = () => {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
-    _sourceBlobPromise = fetch(url, { signal: ctrl.signal })
+    return fetch(url, { signal: ctrl.signal })
       .then(r => {
-        if (!r.ok) throw new FetchError("http", `Server returned ${r.status} ${r.statusText}`.trim(), r.status);
-        return r.blob();
+        if (r.ok) return r.blob();
+        if (RETRYABLE_STATUS.has(r.status) && attempt < MAX_RETRIES) {
+          const wait = retryDelayMs(r, attempt++);
+          reportRetry(r.status, attempt, wait);
+          clearTimeout(timer);
+          return new Promise(res => setTimeout(res, wait)).then(attemptFetch);
+        }
+        throw new FetchError("http", `Server returned ${r.status} ${r.statusText}`.trim(), r.status);
       })
       .catch(e => {
         if (e instanceof FetchError) throw e;
@@ -526,9 +548,11 @@ function getSourceBlob(url) {
         throw new FetchError("network", "Network error — could not reach the host");
       })
       .finally(() => clearTimeout(timer));
-    // Drop the cached rejection on failure so a Retry re-fetches cleanly.
-    _sourceBlobPromise.catch(() => { _sourceBlobPromise = null; });
-  }
+  };
+
+  _sourceBlobPromise = attemptFetch();
+  // Drop the cached rejection on failure so a manual Retry re-fetches cleanly.
+  _sourceBlobPromise.catch(() => { _sourceBlobPromise = null; });
   return _sourceBlobPromise;
 }
 
@@ -1582,6 +1606,13 @@ function setStatus(node){
   document.body.appendChild(statusEl);
 }
 function clearStatus(){ statusEl?.remove(); statusEl=null; }
+
+// Called by getSourceBlob between backoff attempts; only updates the loading
+// overlay if it's currently showing (never pops UI on a cached/save refetch).
+function reportRetry(status, attempt, waitMs){
+  if(!statusEl) return;
+  setStatus(`Server busy (HTTP ${status}) — retrying in ${Math.ceil(waitMs/1000)}s… (attempt ${attempt}/${MAX_RETRIES})`);
+}
 
 function errorMessage(err){
   if(err?.kind==="http"){
