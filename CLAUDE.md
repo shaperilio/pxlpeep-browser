@@ -12,14 +12,38 @@ Ported from the C++ original by shaperilio. Provenance noted at `content/main.js
 
 ## Architecture
 
-- **Manifest V2** (Firefox-oriented; uses `browser.*`, persistent background page).
-- **`background/worker.js`** — the interception. Blocking `webRequest.onHeadersReceived`
-  detects `main_frame` responses with an image `Content-Type`, cancels the request, and
-  redirects the tab to `viewer.html?url=<original URL>`.
-- **`viewer.html` + `viewer.js`** — trivial glue. `viewer.js` parses `?url=` into
-  `window.__pxlpeepImageUrl`; the HTML loads `viewer.js` then `content/main.js`.
-- **`content/main.js`** (~1700 lines) — **the entire app**, self-contained vanilla JS,
-  zero dependencies, no bundler, no build step. Loaded as a raw `<script>`.
+- **Manifest V3**, cross-browser (Chrome + Firefox) from one manifest, `chrome.*` namespace
+  (no polyfill). Background is an ephemeral service worker (Chrome) / event page (Firefox) via
+  a dual `background` key (`service_worker` + `scripts`). Permissions are just `contextMenus` +
+  `host_permissions:["<all_urls>"]` — the content script's `matches:["<all_urls>"]` drives
+  injection; the host permission is only for the viewer's cross-origin image fetch.
+- **`content/takeover.js`** — the takeover. A `document_start`, `<all_urls>` content script. It
+  checks `document.contentType` and does nothing unless the page is a standalone image
+  document. On one, it covers the native view (a CSSOM-styled `<div>`, not a CSP-blockable
+  `<style>`) and loads `main.js` into the page's **main world** (a `<script src>` at the
+  web-accessible `content/main.js`). Running in the image document's own top-level context keeps
+  the app's image fetch in the same **cache partition** the browser already populated — a hit,
+  not a re-download. Same URL, no redirect.
+  - **Hybrid CSP/sandbox fallback:** some image responses are sandboxed and/or carry a strict
+    CSP (e.g. Google Photos sends `default-src 'none'` + sandbox), which blocks the injected
+    main-world script from ever running. `takeover.js` detects that the app UI
+    (`#pxlpeep-toolbar`) never appeared and messages the background to redirect the tab to
+    `viewer.html` — our own extension origin, immune to the page's CSP/sandbox. That redirect's
+    fetch lands in a different partition (re-download), but such responses are near-always
+    no-store / auth'd = uncacheable anyway, so nothing is lost.
+- **`background/worker.js`** — MV3 background. No `webRequest`. Hosts the "Open image in
+  pxlpeep" context menu (`contexts:["image"]`, opens `viewer.html?url=<srcUrl>`; its icon is a
+  Firefox-only `menus` feature added via UA sniff, since Chrome throws on the `icons` property)
+  and the fallback-redirect message handler for `takeover.js`.
+- **`viewer.html` + `viewer.js`** — the **forced** entry point, used by both the context menu
+  and the CSP/sandbox fallback. `viewer.js` parses `?url=` into `window.__pxlpeepImageUrl`; the
+  HTML loads `viewer.js` then `content/main.js`. Because it's our own extension page it bypasses
+  any page CSP/sandbox and fetches with host permissions — so it works even on images served
+  with a non-image Content-Type.
+- **`content/main.js`** (~1700 lines) — **the entire app**, self-contained vanilla JS, zero
+  dependencies, no bundler, no build step. Unchanged by the MV3 port: it runs in the page's main
+  world both in-place (injected by `takeover.js`) and under `viewer.html`, and reads
+  `window.__pxlpeepImageUrl || location.href`, so one file serves both paths.
 
 ### Key patterns in main.js
 - Single mutable global state object **`S`**; a manual `requestFrame()` render loop and
@@ -41,37 +65,52 @@ Ported from the C++ original by shaperilio. Provenance noted at `content/main.js
 - The multi-channel palette path reproduces a C++ BGRA-blue-byte quirk deliberately, to
   match the original's output.
 
-## MV2 vs MV3 — important history
+## Why in-place takeover (and the paths not taken)
 
-The project was briefly MV3 and **reverted** to MV2 (commit `80add57`). MV3 removed
-blocking `webRequest`, so the MV3 version couldn't cancel/redirect; instead it let the
-browser render the native image and injected `main.js` on top via a two-step
-`onHeadersReceived` → `tabs.onUpdated` dance, storing tab IDs in an **in-memory `Set`**.
-That Set is wiped when the MV3 service worker is evicted between the two events → injection
-silently fails. That flakiness is why MV2 came back.
+The MV3 in-place takeover replaced two earlier designs; the history explains the constraints:
 
-**Planned MV3 approach (see ROADMAP.md):** do NOT reinstate the inject-on-top model. Prefer
-an **in-place content-script takeover** — a `document_start` content script that checks
-`document.contentType`, and if it's an image, takes over the page in place (same URL, no
-redirect). This is genuinely cross-browser (Chrome + Firefox), needs no `webRequest`, cuts
-permissions (easier store review), and fixes the cache-miss issue (the browser already
-downloaded the image; our same-origin fetch is a cache hit). MV3 work happens on the
-`mv3` branch; `main` stays the known-good MV2 build.
+- **Original MV2 (pre-MV3):** blocking `webRequest.onHeadersReceived` detected an image
+  `main_frame` response, **cancelled** it, and redirected the tab to `viewer.html`. It worked
+  but was effectively Firefox-only (blocking `webRequest` is gone in Chrome MV3), needed heavy
+  permissions, and re-downloaded the image (the cancel discarded the download, and the viewer
+  fetch is a different cache partition than the original top-level load).
+- **A brief, reverted MV3 "inject-on-top"** (reverted in commit `80add57`, "Go back to V2"):
+  let the browser render the native image and injected `main.js` on top via a two-step
+  `onHeadersReceived` → `tabs.onUpdated` dance, storing tab IDs in an **in-memory `Set`**. That
+  Set is wiped when the service worker is evicted between the two events → injection silently
+  fails. **Do NOT reinstate this.**
+
+The in-place content-script takeover avoids both: no `webRequest`, genuinely cross-browser,
+minimal permissions, and a same-partition cache hit for normal images. A `document_start`
+content script was verified to run on the browser's synthetic image document in **both** Chrome
+and Firefox. The only case it can't do in place — sandboxed / strict-CSP responses — is caught
+by the hybrid fallback above.
+
+Cross-browser gotchas learned here: modern **Chrome also exposes the `browser` global**, so it
+can't distinguish Chrome from Firefox (use a UA sniff for Firefox-only bits like menu `icons`).
+**Firefox has no background service worker** (as of 2026), hence the dual `background` key —
+which makes Chrome log a harmless `'background.scripts' requires manifest version of 2 or lower`
+warning; the real fix is per-browser manifests at store-packaging time (see `ROADMAP.md`).
 
 ## Testing / verification
 
-No tests are checked in (`.gitignore` excludes the harness). `playwright` is a devDep.
-There is no build; `node --check content/main.js` is the syntax gate.
+No tests are checked in; `node_modules`, `package.json`, and the test artifacts are all
+gitignored, so there's no committed harness. There is no build — `node --check` on the JS files
+(`content/takeover.js`, `background/worker.js`, `content/main.js`) is the syntax gate.
 
-**Verification pattern used this session** (Playwright): spin a local `http` server that
-serves the extension files AND a controllable image endpoint, load
-`viewer.html?url=<localImage>` in headless chromium, then assert on network request counts
-and on `window.__pxlpeep.S`. A controllable endpoint can return 503/404/garbage-bytes/hang
-to drive every error path deterministically. Scratch harnesses were run from the repo root
-(so `node_modules` resolves) and deleted after.
+**Playwright verification pattern:** spin a local `http` server that serves the extension files
+AND a controllable image endpoint, then drive headless Chromium. Two angles:
+- Load `viewer.html?url=<localImage>` directly and assert on network request counts and
+  `window.__pxlpeep.S` — the controllable endpoint can return 503/404/garbage-bytes/hang to
+  drive every error path deterministically.
+- Load the **unpacked extension** and navigate to a local image to exercise the in-place
+  takeover; serve an image with `Content-Security-Policy: default-src 'none'` + sandbox headers
+  to reproduce the Google-Photos class of failure and assert the fallback redirect fires.
+- Firefox behavior, the context menu (native UI), and real-site auth can't be covered
+  headlessly — load the unpacked extension in each browser and test by hand.
 
-**Gotcha:** the checked-out `node_modules` had a corrupted Playwright install (stripped
-`.js` + browser binaries). Repair with `npm install && npx playwright install chromium`.
+Set up Playwright ad hoc when needed (`npm init -y && npm i -D playwright && npx playwright
+install chromium`), run scratch harnesses from the repo root, delete after.
 
 ## Conventions
 
