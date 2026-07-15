@@ -1,4 +1,4 @@
-# pxlpeep-browser — Wishlist / Roadmap
+# pxlpeep-browser — Roadmap
 
 Running list of planned work. Keep newest thinking here so a session can be resumed
 on another machine. See `CLAUDE.md` for architecture.
@@ -8,13 +8,26 @@ on another machine. See `CLAUDE.md` for architecture.
 ### MV3 migration (branch: `mv3`)
 Move off MV2 so the extension can ship to Chrome *and* Firefox from one codebase, cut
 permissions (easier store review), and fix the cache-miss-vs-browser download.
-- **Approach:** in-place content-script takeover at `document_start` (check
-  `document.contentType`, take over in place — no redirect, no `webRequest`). **Do NOT**
-  reinstate the MV3 inject-on-top model that was already reverted (see CLAUDE.md history).
-- Open question: confirm a static `<all_urls>` `document_start` content script reliably
-  runs on the browser's native image document in both Chrome and Firefox. If not, fall
-  back to a single non-blocking `onHeadersReceived` → `tabs.update` redirect to
-  `viewer.html` (costs a brief flash of the native image, but deterministic).
+
+**Approach — in-place content-script takeover (implemented; works in Chrome + Firefox).**
+A `document_start`, `<all_urls>` content script (`content/takeover.js`) checks
+`document.contentType`; on a standalone image document it suppresses the native view and
+loads `main.js` in place — same URL, no redirect, no `webRequest`. `content/main.js` is
+unchanged; `viewer.html`/`viewer.js` are kept as the *forced* entry point for the context
+menu. Do **not** reinstate the reverted inject-on-top model (see CLAUDE.md history).
+
+- The open question — "does a `document_start` content script run on the browser's native
+  image document?" — is **resolved: yes, in both Chrome and Firefox** (verified with a
+  throwaway probe).
+- Permissions cut from `webRequest`/`webRequestBlocking`/`tabs`/`scripting`/`downloads`/
+  `contextMenus`/`<all_urls>` down to just `contextMenus` + `host_permissions:["<all_urls>"]`.
+- **CSP/sandbox images (e.g. Google Photos)** are handled by a **hybrid fallback**: those
+  responses are sandboxed and/or carry `Content-Security-Policy: default-src 'none'`, which
+  blocks the injected main-world `main.js`. `takeover.js` attempts the in-place takeover and,
+  if the app UI (`#pxlpeep-toolbar`) never appears, messages the background to redirect the
+  tab to `viewer.html` (our own origin, free of the page CSP/sandbox). Normal images stay
+  in-place (same-partition cache hit); only the blocked minority redirect (a re-download,
+  but those are near-always no-store/auth'd = uncacheable anyway).
 
 ## Features
 
@@ -57,11 +70,18 @@ shell (lightweight, OS webview). Gives real file associations + single-window be
 ## Polish / store prep
 
 - Fix icon mismatch: the `48` slot in `manifest.json` points at `icon_64x64.png`.
-- Remove leftover `console.log` debug lines in `background/worker.js`.
+- **Per-browser manifests at packaging time.** One MV3 manifest serves both browsers via a
+  dual `background` key (`service_worker` for Chrome, `scripts` for Firefox — Firefox still
+  has no background service worker, confirmed 2026). Chrome loads and runs fine but shows a
+  cosmetic warning: `'background.scripts' requires manifest version of 2 or lower`. It's
+  harmless (Chrome ignores the key and uses the service worker) and left as-is for dev. The
+  clean fix is to emit per-browser packages that each drop the other browser's key — which
+  we need for the two stores anyway (Chrome Web Store vs AMO), so fold it into store
+  packaging rather than bolting on a build step now.
 - Write a privacy policy (required by stores given broad host permissions; states no data
   collected, only fetches the image you opened).
-- Chrome Web Store: needs MV3, one-time $5 registration. Firefox AMO: MV2 still accepted,
-  free; add `browser_specific_settings.gecko.id`.
+- Chrome Web Store & Firefox AMO: both now MV3. Chrome is a one-time $5 registration; AMO
+  is free. Add `browser_specific_settings.gecko.id` (needed for MV3 signing on AMO).
 - **Download progress UI** — deferred. Only worth building if we stay on the redirect
   architecture; the in-place MV3 takeover makes it moot (browser already downloaded, our
   fetch is a cache hit). A minimal "Loading…" placeholder already exists.

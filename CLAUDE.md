@@ -50,7 +50,7 @@ browser render the native image and injected `main.js` on top via a two-step
 That Set is wiped when the MV3 service worker is evicted between the two events → injection
 silently fails. That flakiness is why MV2 came back.
 
-**Planned MV3 approach (see WISHLIST):** do NOT reinstate the inject-on-top model. Prefer
+**Planned MV3 approach (see ROADMAP.md):** do NOT reinstate the inject-on-top model. Prefer
 an **in-place content-script takeover** — a `document_start` content script that checks
 `document.contentType`, and if it's an image, takes over the page in place (same URL, no
 redirect). This is genuinely cross-browser (Chrome + Firefox), needs no `webRequest`, cuts

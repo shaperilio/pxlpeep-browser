@@ -1,63 +1,57 @@
-// pxlpeep background script (MV2)
-// Detects top-level image navigations and injects the content script.
+// pxlpeep background (MV3).
+//
+// The image takeover happens in-place via the document_start content script
+// (content/takeover.js) — no webRequest. This background hosts the "Open image in
+// pxlpeep" context menu and the takeover's fallback: when a page's CSP/sandbox
+// blocks the in-place script, takeover.js asks us to redirect the tab to the
+// viewer. It can stay an ephemeral service worker (Chrome) / event page (Firefox).
+//
+// Uses the chrome.* namespace with callbacks so the one file works in both
+// Chrome and Firefox.
 
-const IMAGE_TYPES = new Set([
-  "image/png", "image/jpeg", "image/jpg", "image/gif",
-  "image/webp", "image/bmp", "image/tiff", "image/avif",
-  "image/svg+xml", "image/x-portable-pixmap",
-]);
-
-console.log("[pxlpeep] background script loaded");
-
-browser.webRequest.onHeadersReceived.addListener(
-  (details) => {
-    if (details.type !== "main_frame") return;
-
-    const ct = details.responseHeaders
-      ?.find(h => h.name.toLowerCase() === "content-type")
-      ?.value?.split(";")[0].trim().toLowerCase();
-
-    console.log("[pxlpeep] onHeadersReceived", details.url, "ct=", ct);
-
-    if (!ct || !IMAGE_TYPES.has(ct)) return;
-
-    const viewerUrl = browser.runtime.getURL("viewer.html")
-      + "?url=" + encodeURIComponent(details.url);
-    console.log("[pxlpeep] navigating tab to", viewerUrl);
-    browser.tabs.update(details.tabId, { url: viewerUrl });
-    return { cancel: true };
-  },
-  { urls: ["<all_urls>"], types: ["main_frame"] },
-  ["responseHeaders", "blocking"]
-);
-
-// ── Context menu: "Open image in pxlpeep" ────────────────────────────────────
-// Right-clicking an image offers to open it in pxlpeep. We point the new tab at
-// the viewer directly (viewer.html?url=…) instead of the raw image URL. Going
-// through the viewer — rather than relying on the onHeadersReceived redirect
-// above — forces pxlpeep to take over even when the image is served with a
-// non-image Content-Type (which the interceptor would skip), and avoids the
-// brief flash of the browser's native image view. It's an <img> element, so we
-// already know the bytes decode.
-browser.contextMenus.removeAll().then(() => {
-  browser.contextMenus.create({
-    id: "pxlpeep-open-image",
-    title: "Open image in pxlpeep",
-    contexts: ["image"],
-    // Icon makes our item findable in Firefox's crowded image context menu
-    // (Firefox-only menus feature; ignored by Chrome).
-    icons: { "16": "loupe.iconset/icon_16x16.png", "32": "loupe.iconset/icon_32x32.png" },
+// Register the menu once. onInstalled fires on install and update; removeAll
+// first so an update can't hit a duplicate-id error.
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.removeAll(() => {
+    const props = {
+      id: "pxlpeep-open-image",
+      title: "Open image in pxlpeep",
+      contexts: ["image"],
+    };
+    // A menu-item icon helps it stand out in Firefox's crowded image menu, but
+    // `icons` is a Firefox-only property and Chrome throws on it. Can't sniff via
+    // the `browser` global — modern Chrome exposes that alias too — so key off the
+    // UA (Firefox's always contains "Firefox"; Chromium's never does).
+    if (navigator.userAgent.includes("Firefox")) {
+      props.icons = { 16: "loupe.iconset/icon_16x16.png", 32: "loupe.iconset/icon_32x32.png" };
+    }
+    chrome.contextMenus.create(props);
   });
 });
 
-browser.contextMenus.onClicked.addListener((info, tab) => {
+chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId !== "pxlpeep-open-image" || !info.srcUrl) return;
-  const viewerUrl = browser.runtime.getURL("viewer.html")
-    + "?url=" + encodeURIComponent(info.srcUrl);
-  browser.tabs.create({
+  // Route through the viewer (viewer.html?url=…) rather than the raw image URL,
+  // so it force-opens even when the image is served with a non-image
+  // Content-Type — the in-place content script keys off document.contentType,
+  // which such responses wouldn't satisfy.
+  const viewerUrl =
+    chrome.runtime.getURL("viewer.html") + "?url=" + encodeURIComponent(info.srcUrl);
+  chrome.tabs.create({
     url: viewerUrl,
     active: true,
     openerTabId: tab?.id,
     index: tab ? tab.index + 1 : undefined,
   });
+});
+
+// Fallback for content/takeover.js: when a page's CSP/sandbox blocks the in-place
+// script, redirect the tab to the viewer, which runs on our own extension origin
+// (free of the page's CSP/sandbox). Navigating a tab to our own page needs no
+// extra permission.
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (msg?.type !== "pxlpeep-fallback" || sender.tab?.id == null) return;
+  const viewerUrl =
+    chrome.runtime.getURL("viewer.html") + "?url=" + encodeURIComponent(msg.url);
+  chrome.tabs.update(sender.tab.id, { url: viewerUrl });
 });
