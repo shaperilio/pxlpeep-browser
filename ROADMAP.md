@@ -5,9 +5,12 @@ on another machine. See `CLAUDE.md` for architecture.
 
 ## In progress / next
 
-### MV3 migration (branch: `mv3`)
-Move off MV2 so the extension can ship to Chrome *and* Firefox from one codebase, cut
-permissions (easier store review), and fix the cache-miss-vs-browser download.
+Nothing in flight — MV3 shipped (below). Next is whatever gets picked from **Features** or
+**Polish / store prep**.
+
+### MV3 migration — DONE (merged to `main` 2026-07; `mv3` branch deleted)
+Moved off MV2 so the extension ships to Chrome *and* Firefox from one codebase, cut
+permissions (easier store review), and fixed the cache-miss-vs-browser download.
 
 **Approach — in-place content-script takeover (implemented; works in Chrome + Firefox).**
 A `document_start`, `<all_urls>` content script (`content/takeover.js`) checks
@@ -100,8 +103,15 @@ shell (lightweight, OS webview). Gives real file associations + single-window be
   architecture; the in-place MV3 takeover makes it moot (browser already downloaded, our
   fetch is a cache hit). A minimal "Loading…" placeholder already exists.
 
-## Done (recent session)
+## Done (recent sessions)
 
+- `00c00f2` — fix sticky pan/ROI drag on off-window button release (pointer capture +
+  self-heal; also un-sticks shift+drag ROI).
+- `c20700b` — context menu: "pxlpeep" submenu with View image (this tab) / Open image in
+  new tab.
+- `530fee3`–`ff2e716` — **MV3 migration**: in-place takeover + CSP/sandbox hybrid fallback,
+  permissions cut, CLAUDE.md rewritten. Merged to `main`.
+- `187d61d` — "Open image in pxlpeep" image context-menu item (forced viewer path).
 - `35c2c50` — fetch source image once, reuse the Blob (2–3 requests → 1).
 - `7175a9a` — surface fetch errors with a retryable DOM overlay + 30s timeout.
 - `d714ecd` — auto-retry transient server errors (429/502/503/504) with backoff +
