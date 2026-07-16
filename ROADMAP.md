@@ -59,6 +59,20 @@ Both turn pxlpeep from a single-image inspector into a **frame-sequence inspecto
 - Decide whether min/max/scale is per-frame or locked across the sequence (per-frame would
   make brightness flicker; a locked/global range is probably wanted — design decision).
 
+### 3. Close pxlpeep (revert to native image handling)
+An in-viewer way out (toolbar ✕ and/or a key, e.g. `Esc`) that tears pxlpeep down and gives
+the tab back to the browser's native image view.
+- **In-place path:** straightforward teardown — remove the canvases/toolbar/status overlay,
+  un-hide the native `<img>`, restore the body styles, unhook the window listeners
+  (keydown/keyup/resize), clear `window.__pxlpeepActive`.
+- **Viewer path (context menu / CSP-sandbox fallback):** the extension page has no native
+  view — "close" means navigating the tab back to the raw image URL. But that re-runs
+  `content/takeover.js`, which takes over again (and for CSP/sandboxed images bounces right
+  back to the viewer — an infinite loop). Needs a one-shot per-tab suppression flag the
+  takeover consults, e.g. `chrome.storage.session` keyed by tab id, set by the background
+  just before navigating. (SW in-memory state is NOT reliable for this — that's the eviction
+  bug that killed the old inject-on-top design.)
+
 ## Platforms
 
 ### Tauri desktop wrapper
