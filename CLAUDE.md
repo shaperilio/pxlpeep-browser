@@ -31,10 +31,13 @@ Ported from the C++ original by shaperilio. Provenance noted at `content/main.js
     `viewer.html` — our own extension origin, immune to the page's CSP/sandbox. That redirect's
     fetch lands in a different partition (re-download), but such responses are near-always
     no-store / auth'd = uncacheable anyway, so nothing is lost.
-- **`background/worker.js`** — MV3 background. No `webRequest`. Hosts the "Open image in
-  pxlpeep" context menu (`contexts:["image"]`, opens `viewer.html?url=<srcUrl>`; its icon is a
-  Firefox-only `menus` feature added via UA sniff, since Chrome throws on the `icons` property)
-  and the fallback-redirect message handler for `takeover.js`.
+- **`background/worker.js`** — MV3 background. No `webRequest`. Hosts the "pxlpeep" image
+  context menu (`contexts:["image"]`): an explicit parent — Chrome force-collapses 2+ items
+  into a submenu anyway — with **View image** (this tab, `tabs.update`) and **Open image in
+  new tab** (`tabs.create`), both opening `viewer.html?url=<srcUrl>`. The parent's icon is a
+  Firefox-only `menus` feature added via UA sniff (Chrome throws on `icons` but decorates the
+  top-level entry with the extension icon automatically). Also hosts the fallback-redirect
+  message handler for `takeover.js`.
 - **`viewer.html` + `viewer.js`** — the **forced** entry point, used by both the context menu
   and the CSP/sandbox fallback. `viewer.js` parses `?url=` into `window.__pxlpeepImageUrl`; the
   HTML loads `viewer.js` then `content/main.js`. Because it's our own extension page it bypasses

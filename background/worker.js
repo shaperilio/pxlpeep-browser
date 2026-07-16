@@ -1,48 +1,69 @@
 // pxlpeep background (MV3).
 //
 // The image takeover happens in-place via the document_start content script
-// (content/takeover.js) — no webRequest. This background hosts the "Open image in
-// pxlpeep" context menu and the takeover's fallback: when a page's CSP/sandbox
-// blocks the in-place script, takeover.js asks us to redirect the tab to the
-// viewer. It can stay an ephemeral service worker (Chrome) / event page (Firefox).
+// (content/takeover.js) — no webRequest. This background hosts the "pxlpeep"
+// image context menu (View image / Open image in new tab) and the takeover's
+// fallback: when a page's CSP/sandbox blocks the in-place script, takeover.js
+// asks us to redirect the tab to the viewer. It can stay an ephemeral service
+// worker (Chrome) / event page (Firefox).
 //
 // Uses the chrome.* namespace with callbacks so the one file works in both
 // Chrome and Firefox.
 
-// Register the menu once. onInstalled fires on install and update; removeAll
-// first so an update can't hit a duplicate-id error.
+// Register the menus once. onInstalled fires on install and update; removeAll
+// first so an update can't hit duplicate-id errors.
+//
+// One "pxlpeep" parent with two actions. With 2+ items Chrome force-collapses
+// them into a submenu anyway, so an explicit parent makes both browsers look
+// identical: pxlpeep ▸ View image / Open image in new tab.
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.removeAll(() => {
-    const props = {
-      id: "pxlpeep-open-image",
-      title: "Open image in pxlpeep",
+    const parent = {
+      id: "pxlpeep",
+      title: "pxlpeep",
       contexts: ["image"],
     };
-    // A menu-item icon helps it stand out in Firefox's crowded image menu, but
-    // `icons` is a Firefox-only property and Chrome throws on it. Can't sniff via
-    // the `browser` global — modern Chrome exposes that alias too — so key off the
-    // UA (Firefox's always contains "Firefox"; Chromium's never does).
+    // Parent icon: `icons` is a Firefox-only property and Chrome throws on it
+    // (Chrome decorates the top-level entry with the extension icon on its own).
+    // Can't sniff via the `browser` global — modern Chrome exposes that alias
+    // too — so key off the UA (Firefox's always contains "Firefox").
     if (navigator.userAgent.includes("Firefox")) {
-      props.icons = { 16: "loupe.iconset/icon_16x16.png", 32: "loupe.iconset/icon_32x32.png" };
+      parent.icons = { 16: "loupe.iconset/icon_16x16.png", 32: "loupe.iconset/icon_32x32.png" };
     }
-    chrome.contextMenus.create(props);
+    chrome.contextMenus.create(parent);
+    chrome.contextMenus.create({
+      id: "pxlpeep-view-image",
+      parentId: "pxlpeep",
+      title: "View image",
+      contexts: ["image"],
+    });
+    chrome.contextMenus.create({
+      id: "pxlpeep-open-image",
+      parentId: "pxlpeep",
+      title: "Open image in new tab",
+      contexts: ["image"],
+    });
   });
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId !== "pxlpeep-open-image" || !info.srcUrl) return;
-  // Route through the viewer (viewer.html?url=…) rather than the raw image URL,
-  // so it force-opens even when the image is served with a non-image
-  // Content-Type — the in-place content script keys off document.contentType,
-  // which such responses wouldn't satisfy.
+  if (!info.srcUrl) return;
+  // Both actions route through the viewer (viewer.html?url=…) rather than the
+  // raw image URL, so they force-open even when the image is served with a
+  // non-image Content-Type — the in-place content script keys off
+  // document.contentType, which such responses wouldn't satisfy.
   const viewerUrl =
     chrome.runtime.getURL("viewer.html") + "?url=" + encodeURIComponent(info.srcUrl);
-  chrome.tabs.create({
-    url: viewerUrl,
-    active: true,
-    openerTabId: tab?.id,
-    index: tab ? tab.index + 1 : undefined,
-  });
+  if (info.menuItemId === "pxlpeep-view-image" && tab?.id != null) {
+    chrome.tabs.update(tab.id, { url: viewerUrl }); // this tab
+  } else if (info.menuItemId === "pxlpeep-open-image") {
+    chrome.tabs.create({
+      url: viewerUrl,
+      active: true,
+      openerTabId: tab?.id,
+      index: tab ? tab.index + 1 : undefined,
+    });
+  }
 });
 
 // Fallback for content/takeover.js: when a page's CSP/sandbox blocks the in-place
