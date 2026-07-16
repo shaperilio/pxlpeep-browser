@@ -1559,6 +1559,7 @@ function sizeCanvases() {
 });
 
 ovCanvas.style.cursor="crosshair";
+ovCanvas.style.touchAction="none"; // pointer events: keep touch gestures from canceling drags
 
 sizeCanvases();
 
@@ -1662,23 +1663,34 @@ function startLoad(){
 startLoad();
 
 // ── Mouse events ──────────────────────────────────────────────────────────────
+// Pointer events (not mouse events) so drags can capture the pointer: pan/ROI
+// keep tracking outside the window, and the release is always delivered — with
+// mouse events, a mouseup outside the window left the drag stuck "on".
 let panDrag=null, roiDrag=null, wheelAcc=0;
 
-ovCanvas.addEventListener("mousedown",e=>{
-  if(e.button===0&&!e.shiftKey) {
+function endDrag() {
+  panDrag=null; roiDrag=null;
+  ovCanvas.style.cursor="crosshair";
+}
+
+ovCanvas.addEventListener("pointerdown",e=>{
+  if(e.button!==0) return;
+  try { ovCanvas.setPointerCapture(e.pointerId); } catch {} // pointer may already be gone
+  if(!e.shiftKey) {
     panDrag={sx:e.clientX,sy:e.clientY,px:S.panX,py:S.panY};
     ovCanvas.style.cursor="grabbing";
-    e.preventDefault();
-  } else if(e.button===0&&e.shiftKey) {
+  } else {
     const [ix,iy]=viewToImg(e.clientX,e.clientY);
     roiDrag={x:ix,y:iy};
     S.roi={x1:ix,y1:iy,x2:ix,y2:iy,valid:false};
-    e.preventDefault();
   }
+  e.preventDefault();
 });
 
-ovCanvas.addEventListener("mousemove",e=>{
+ovCanvas.addEventListener("pointermove",e=>{
   S.cursorX=e.clientX; S.cursorY=e.clientY;
+  // Self-heal: if the button was released where we couldn't see it, end the drag.
+  if((panDrag||roiDrag)&&!(e.buttons&1)) endDrag();
   if(panDrag) {
     S.panX=panDrag.px+(e.clientX-panDrag.sx);
     S.panY=panDrag.py+(e.clientY-panDrag.sy);
@@ -1693,10 +1705,8 @@ ovCanvas.addEventListener("mousemove",e=>{
   requestFrame();
 });
 
-ovCanvas.addEventListener("mouseup",()=>{
-  panDrag=null; roiDrag=null;
-  ovCanvas.style.cursor="crosshair";
-});
+ovCanvas.addEventListener("pointerup",endDrag);
+ovCanvas.addEventListener("pointercancel",endDrag);
 
 ovCanvas.addEventListener("contextmenu",e=>e.preventDefault());
 
