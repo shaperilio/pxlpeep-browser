@@ -77,8 +77,9 @@ the tab back to the browser's native image view.
   bug that killed the old inject-on-top design.)
 
 ### 4. Multi-image navigation + cross-viewer sync (parity with the C++ original) — NEEDS DESIGN
-The desktop C++ app did a lot the browser port dropped. A capture from the C++ source
-(`C:\Users\barf\pxlpeep`) is being done into a parity design doc; the gist:
+The desktop C++ app did a lot the browser port dropped. **Full capture in `PARITY.md`**
+(read that first — it has the exact sync mechanism, the delta-vs-drift design call, and the
+back-portable items). The gist:
 - **Launcher window** — up to ~10 viewers open at once.
 - **Sync propagates state *changes* (deltas), not absolute state**, across a sync group — so
   windows deliberately stay "out of phase": set a colormap on group A, *then* add group B to
@@ -99,7 +100,10 @@ Desktop vs browser split (the portability discipline for the Tauri work):
   navigation live in `content/main.js` so both targets reuse them. This is a real evolution of
   the single-`S`-object model → multiple `S` instances + a sync layer.
 
-Prereq: finish the C++ capture (parity design doc) before building.
+Prereq done: C++ capture is in `PARITY.md`. Biggest separate finding: the browser port
+silently truncates the C++ app's **16-bit pipeline** to 8-bit (see `PARITY.md` §1) — the core
+"pixel inspector" dynamic range is lost; restoring it needs a JS 16-bit decoder feeding the
+existing Float32 texture path.
 
 ## Platforms
 
