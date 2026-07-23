@@ -118,9 +118,8 @@ core dynamic range of a *pixel-value inspector* is lost.
 
 ### 6. Back-port the "free wins" from the C++ original (`PARITY.md` §5)
 Small portable behaviors the browser port dropped; do as a batch.
-- ✅ **Ctrl+3–7 center / corner positioning** — done (`e7bb475`). Caveat: `Ctrl+<number>`
-  collides with browser tab-switching; verify the binding actually reaches the page in each
-  browser (same open question applies to the pre-existing Ctrl+1/2). If not, rebind.
+- ✅ **Ctrl+3–7 center / corner positioning** — done (`e7bb475`), confirmed working in a real
+  browser (the `Ctrl+<number>` binding reaches the page; it isn't eaten by tab-switching).
 - **Recompute min/max after white balance** so Fit-scale + colorbar track the correction
   (currently ignored — a real gap).
 - **Fit min/max over per-channel values, not luminance** (color images differ from desktop).
