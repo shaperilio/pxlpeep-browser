@@ -56,6 +56,8 @@ design, not a bug.**
 - **Our port should express continuous deltas in IMAGE coordinates** (zoom anchor, pan Δ, ROI corners
   in image space; discrete steps like `palette++` / `zoomLevel ±1` stay relative). That preserves the
   deliberate offset **and** eliminates the accidental drift — strictly better than the original.
+  **(Decided: proceed this way. If the C++ drift turns out to be intentional after all, it's
+  cheap to fudge back in.)**
 
 **What syncs vs. stays local** (C++ gates locals with `!forwarded`):
 - **Synced:** zoom, pan, ROI select, and all display toggles — colormap (V), transfer fn (F), dip

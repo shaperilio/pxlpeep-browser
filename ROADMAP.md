@@ -105,6 +105,33 @@ silently truncates the C++ app's **16-bit pipeline** to 8-bit (see `PARITY.md` �
 "pixel inspector" dynamic range is lost; restoring it needs a JS 16-bit decoder feeding the
 existing Float32 texture path.
 
+### 5. Restore the 16-bit / high-bit-depth pipeline — HIGH VALUE
+See `PARITY.md` §1. The C++ app is fundamentally a high-bit-depth inspector (16-bit, 14-bit
+RAW; readouts / Fit+User scale / colorbar over 0–65535). The browser port decodes through an
+8-bit canvas and hardcodes `bpp:8`, silently truncating every 16-bit image to 8 bits — the
+core dynamic range of a *pixel-value inspector* is lost.
+- **Approach:** a real in-JS 16-bit decoder (TIFF / PNG-16 → `Uint16`/`Float32`) feeding the
+  existing Float32 GPU texture path. The shader's `uMaxRaw` machinery is already threaded for it
+  (the "dead generality" in CLAUDE.md). Pairs with TIFF support (`PARITY.md` §6).
+- Big effort, shared by both targets; arguably the highest-value single feature for what
+  pxlpeep fundamentally *is*.
+
+### 6. Back-port the "free wins" from the C++ original (`PARITY.md` §5)
+Small portable behaviors the browser port dropped; do as a batch.
+- ✅ **Ctrl+3–7 center / corner positioning** — done (`e7bb475`). Caveat: `Ctrl+<number>`
+  collides with browser tab-switching; verify the binding actually reaches the page in each
+  browser (same open question applies to the pre-existing Ctrl+1/2). If not, rebind.
+- **Recompute min/max after white balance** so Fit-scale + colorbar track the correction
+  (currently ignored — a real gap).
+- **Fit min/max over per-channel values, not luminance** (color images differ from desktop).
+- **Clipboard copy (Ctrl+C)** of the mapped image / screenshot (Ctrl+C is free now that saves
+  moved to Ctrl+S variants).
+- **Self-documenting "save mapped" filenames** (encode palette/fn/scale/dip/rotation).
+- **Reload control** (clear `_sourceBlobPromise` + re-run `startLoad`; F5/Ctrl+R are
+  browser-reserved, so a toolbar button).
+- **Show EXIF firmware** (already parsed into `S.exif.firmware`, just not displayed) + app
+  version in the help header.
+
 ## Platforms
 
 ### Tauri desktop wrapper
@@ -135,11 +162,14 @@ shell (lightweight, OS webview). Gives real file associations + single-window be
 ## Open-source / release
 
 Make the repo a proper open-source project.
-- **Choose a license** (decision pending): MIT (simple, permissive — default), Apache-2.0
-  (permissive + explicit patent grant), or GPL-3.0 (copyleft — derivatives stay open). The
-  browser port has zero third-party code, so there are no dependency-license constraints, and
-  the C++ original's Qt/FreeImage licensing does not bind the JS reimplementation — author's
-  call.
+- **Choose a license — wants a considered, informed decision, so treat it as a real comparison,
+  not a quick pick.** Candidates: MIT (simple, permissive), Apache-2.0 (permissive + explicit
+  patent grant), GPL-3.0 (copyleft — derivatives stay open), MPL-2.0 (file-level copyleft, a
+  middle ground). Weigh against the project's goals: adoption vs. keeping derivatives open,
+  patent protection, store distribution, contribution terms, and the C++ heritage. No hard
+  constraints from the code — the browser port has zero third-party deps, and the C++ original's
+  Qt/FreeImage licensing does not bind the JS reimplementation. (Do a proper options write-up
+  before deciding.)
 - Add `LICENSE`.
 - **Write a `README`** — there is none yet. What it is, a screenshot / short demo GIF, install
   (unpacked now; store links later), a keyboard/mouse cheatsheet, credit to the C++ original.
