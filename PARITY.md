@@ -11,16 +11,16 @@ Categories: **desktop-only** (filesystem / OS-window-manager bound), **portable*
 
 ---
 
-## 1. The big one — 16-bit / high-bit-depth pipeline (portable, MAJOR loss)
+## 1. 16-bit / high-bit-depth pipeline (portable, real capability loss)
 
-pxlpeep is *fundamentally a high-bit-depth inspector*. The C++ loads 16-bit greyscale, 16-bit color,
-and 14-bit RAW, and every readout / Fit+User auto-scale / log+parabolic transfer function / colorbar
-operates over the full **0–65535** domain (`ImageData`: `ushort*` storage, `BPP` 1/4/8/14/16).
+The C++ loads 16-bit greyscale, 16-bit color, and 14-bit RAW, and every readout / Fit+User
+auto-scale / log+parabolic transfer function / colorbar operates over the full **0–65535** domain
+(`ImageData`: `ushort*` storage, `BPP` 1/4/8/14/16).
 
-The browser port **silently truncates everything to 8-bit**: it decodes through an 8-bit canvas
-`getImageData` and hardcodes `bpp:8` (`main.js:601`), so `uMaxRaw` is always 255 and the whole
-dynamic range collapses to 0–255. This is the single biggest capability lost — for a *pixel-value
-inspector*, losing the low 8 bits of a 16-bit image is the core feature quietly disappearing.
+The browser port **silently truncates to 8-bit**: it decodes through an 8-bit canvas `getImageData`
+and hardcodes `bpp:8` (`main.js:601`), so `uMaxRaw` is always 255 and the dynamic range collapses to
+0–255. For anyone inspecting genuinely high-bit-depth images (scientific, medical, RAW) that's a real
+lost capability — one of the more consequential gaps, though far from the only thing pxlpeep is about.
 
 - **Restore path:** a real in-JS 16-bit decoder (TIFF / PNG-16 → `Uint16`/`Float32` array) feeding
   the existing Float32 GPU texture path. The shader's `uMaxRaw` machinery is *already* threaded for
