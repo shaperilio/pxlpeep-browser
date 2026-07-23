@@ -76,6 +76,31 @@ the tab back to the browser's native image view.
   just before navigating. (SW in-memory state is NOT reliable for this — that's the eviction
   bug that killed the old inject-on-top design.)
 
+### 4. Multi-image navigation + cross-viewer sync (parity with the C++ original) — NEEDS DESIGN
+The desktop C++ app did a lot the browser port dropped. A capture from the C++ source
+(`C:\Users\barf\pxlpeep`) is being done into a parity design doc; the gist:
+- **Launcher window** — up to ~10 viewers open at once.
+- **Sync propagates state *changes* (deltas), not absolute state**, across a sync group — so
+  windows deliberately stay "out of phase": set a colormap on group A, *then* add group B to
+  the sync, and subsequent colormap changes affect both while preserving their existing offset.
+  Want the sync group **selectable per window-set**, not just global all-or-nothing.
+- **Arrow-key folder navigation** — left/right cycle images of the *same extension in the same
+  directory*, so parallel JPG/PNG sets can be driven in separate synced windows.
+- **App-defined window snapping** (full / half-vertical / quarter desktop) for OSes without
+  Windows-style snap.
+
+Desktop vs browser split (the portability discipline for the Tauri work):
+- **Desktop-only** (filesystem / window-manager bound): folder-by-extension navigation, window
+  snapping.
+- **Browser adaptation:** rather than one viewer per native image URL, **manage our own pxlpeep
+  tabs** — a context-menu "send image to pxlpeep" appends to a *cycling playlist* in a
+  persistent pxlpeep tab; cross-tab sync via the background service worker as a delta relay.
+- **Shared core:** the sync engine (delta model + selectable groups) and frame/image-list
+  navigation live in `content/main.js` so both targets reuse them. This is a real evolution of
+  the single-`S`-object model → multiple `S` instances + a sync layer.
+
+Prereq: finish the C++ capture (parity design doc) before building.
+
 ## Platforms
 
 ### Tauri desktop wrapper
@@ -102,6 +127,20 @@ shell (lightweight, OS webview). Gives real file associations + single-window be
 - **Download progress UI** — deferred. Only worth building if we stay on the redirect
   architecture; the in-place MV3 takeover makes it moot (browser already downloaded, our
   fetch is a cache hit). A minimal "Loading…" placeholder already exists.
+
+## Open-source / release
+
+Make the repo a proper open-source project.
+- **Choose a license** (decision pending): MIT (simple, permissive — default), Apache-2.0
+  (permissive + explicit patent grant), or GPL-3.0 (copyleft — derivatives stay open). The
+  browser port has zero third-party code, so there are no dependency-license constraints, and
+  the C++ original's Qt/FreeImage licensing does not bind the JS reimplementation — author's
+  call.
+- Add `LICENSE`.
+- **Write a `README`** — there is none yet. What it is, a screenshot / short demo GIF, install
+  (unpacked now; store links later), a keyboard/mouse cheatsheet, credit to the C++ original.
+- Nice-to-haves: `CONTRIBUTING.md`, GitHub topics, a tiny CI (`node --check` + `prettier
+  --check` on push).
 
 ## Done (recent sessions)
 
