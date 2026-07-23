@@ -175,6 +175,25 @@ Make the repo a proper open-source project.
 - Nice-to-haves: `CONTRIBUTING.md`, GitHub topics, a tiny CI (`node --check` + `prettier
   --check` on push).
 
+## Far side (research / someday)
+
+Advanced "true raw" inspection — low priority, research-y, and mostly only meaningful once the
+16-bit+ pipeline (Feature #5) exists.
+
+- **Arbitrary-bit-depth headerless raw ("true raw").** Support *any* bit depth for a headerless
+  raw dump — not the 14-bit special case in the C++ (`PARITY.md` §6), which was a leftover from
+  a specific years-ago task. The general problem: given raw bytes with no header, recover
+  dimensions, bit depth, packing, endianness, and channel layout.
+- **Auto-detect the real bit depth.** ImageJ has code that infers a raw image's actual bit depth
+  even when the data never reaches full-black / full-white — mechanism unknown (never looked into
+  it); worth digging through ImageJ's implementation one day.
+- **User-defined encoding** (alternative/complement to auto-detect): let the user declare how the
+  image is encoded — width/height/bit-depth/packing/endianness/channel order — which would handle
+  esoteric bit-packed formats no heuristic could guess.
+- **Demosaicing.** Bayer (and other CFA) → RGB reconstruction, so raw sensor dumps can be viewed
+  in color. Pairs with the raw support above and the existing Bayer-quad grey white balance
+  (which only averages each 2×2 quad rather than interpolating a true color image).
+
 ## Done (recent sessions)
 
 - `00c00f2` — fix sticky pan/ROI drag on off-window button release (pointer capture +
