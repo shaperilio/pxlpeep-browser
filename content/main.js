@@ -1052,6 +1052,8 @@ const HELP_LINES=[
   "","── Zoom ──",
   "Ctrl+1            zoom to fit",
   "Ctrl+2               zoom 1:1",
+  "Ctrl+3               center",
+  "Ctrl+4-7        image corners",
   "","── Palette ──",
   "V / Shift+V     cycle colormaps",
   "F / Shift+F     cycle functions",
@@ -1102,6 +1104,11 @@ function onKeyDown(e) {
   switch(e.key) {
     case "1": if(ctrl){zoomToFit();} else handled=false; break;
     case "2": if(ctrl){zoomTo1to1();}else handled=false; break;
+    case "3": if(ctrl){positionImage("center");}     else handled=false; break;
+    case "4": if(ctrl){positionImage("topLeft");}    else handled=false; break;
+    case "5": if(ctrl){positionImage("topRight");}   else handled=false; break;
+    case "6": if(ctrl){positionImage("bottomLeft");} else handled=false; break;
+    case "7": if(ctrl){positionImage("bottomRight");}else handled=false; break;
 
     case "v":case "V":
       S.palette=((S.palette+(shift?1:-1))%6+6)%6; break;
@@ -1278,6 +1285,27 @@ function zoomTo1to1() {
   S.zoomLevel=0; S.zoomFactor=1;
   S.panX=(window.innerWidth -S.image.width )/2;
   S.panY=(window.innerHeight-S.image.height)/2;
+  requestFrame();
+}
+
+// Snap the image to a viewport anchor at the CURRENT zoom (unlike fit/1:1),
+// leaving a 5% margin so the anchored corner/edge is clearly framed. Ported
+// from the C++ Ctrl+3..7 — handy for checking image quality in the corners.
+function positionImage(anchor) {
+  if(!S.image) return;
+  const rot=S.rotation;
+  const dw=((rot===1||rot===3)?S.image.height:S.image.width )*S.zoomFactor;
+  const dh=((rot===1||rot===3)?S.image.width :S.image.height)*S.zoomFactor;
+  const vw=window.innerWidth, vh=window.innerHeight;
+  const m=0.05*Math.min(vw,vh);
+  const left=m, right=vw-m-dw, top=m, bottom=vh-m-dh;
+  switch(anchor){
+    case "center":      S.panX=(vw-dw)/2; S.panY=(vh-dh)/2; break;
+    case "topLeft":     S.panX=left;  S.panY=top;    break;
+    case "topRight":    S.panX=right; S.panY=top;    break;
+    case "bottomLeft":  S.panX=left;  S.panY=bottom; break;
+    case "bottomRight": S.panX=right; S.panY=bottom; break;
+  }
   requestFrame();
 }
 
