@@ -117,19 +117,32 @@ in the many features that already work fine at 8-bit.
 - Big effort, shared by both targets.
 
 ### 6. Back-port the "free wins" from the C++ original (`PARITY.md` §5)
-Small portable behaviors the browser port dropped; do as a batch.
+Small portable behaviors the browser port dropped. **Sequencing:** they are not uniformly
+target-independent — they split into *pure core* (identical in both targets, safe anytime) and
+*env-touching* (land differently per target, so do them **after** the Tauri env seam exists and
+implement them once through the abstraction rather than twice and reconciling).
+
+**Pure core — safe anytime:**
 - ✅ **Ctrl+3–7 center / corner positioning** — done (`e7bb475`), confirmed working in a real
   browser (the `Ctrl+<number>` binding reaches the page; it isn't eaten by tab-switching).
 - **Recompute min/max after white balance** so Fit-scale + colorbar track the correction
   (currently ignored — a real gap).
 - **Fit min/max over per-channel values, not luminance** (color images differ from desktop).
-- **Clipboard copy (Ctrl+C)** of the mapped image / screenshot (Ctrl+C is free now that saves
-  moved to Ctrl+S variants).
-- **Self-documenting "save mapped" filenames** (encode palette/fn/scale/dip/rotation).
-- **Reload control** (clear `_sourceBlobPromise` + re-run `startLoad`; F5/Ctrl+R are
-  browser-reserved, so a toolbar button).
 - **Show EXIF firmware** (already parsed into `S.exif.firmware`, just not displayed) + app
   version in the help header.
+
+**Env-touching — after the Tauri seam:**
+- **Reload control.** Whether this should exist *at all* is target- and era-dependent, which is
+  the clearest case for doing Tauri first: it's **not needed in the browser today** (F5 reloads
+  the tab and achieves the same thing); it **is** needed in Tauri (no browser chrome), where it
+  should bind to **Ctrl+R / F5** so the keystroke matches browser muscle memory; and it becomes
+  needed in the browser too **once the playlist/workspace lands**, since a tab refresh would then
+  discard accumulated state instead of just re-fetching one image. Core mechanic is the same
+  (clear `_sourceBlobPromise`, re-run `startLoad`).
+- **Clipboard copy (Ctrl+C)** of the mapped image / screenshot — different APIs per target
+  (browser Clipboard API vs. Tauri's clipboard).
+- **Self-documenting "save mapped" filenames** (encode palette/fn/scale/dip/rotation) — the
+  filename logic is core, but the save mechanism differs (browser download vs. native dialog).
 
 ### 7. Perceptually-uniform / cognitive-response palettes
 The current palettes (`buildLUT`, ported from the C++ `colormapper.h`) were designed ad hoc for
