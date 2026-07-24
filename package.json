@@ -5,12 +5,16 @@
   "description": "Dev tooling only. The extension itself has zero dependencies and no build step; nothing here is shipped.",
   "scripts": {
     "check": "npm run check:js && npm run check:manifest",
-    "check:js": "node --check content/main.js && node --check content/takeover.js && node --check background/worker.js && node --check viewer.js",
+    "check:js": "node --check content/main.js && node --check content/takeover.js && node --check content/desktop.js && node --check background/worker.js && node --check viewer.js",
     "check:manifest": "node -e \"JSON.parse(require('fs').readFileSync('manifest.json','utf8'))\"",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "desktop": "tauri dev",
+    "desktop:build": "tauri build",
+    "tauri": "tauri"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
     "prettier": "^3.9.6"
   }
 }

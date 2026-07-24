@@ -1,4 +1,6 @@
 node_modules/
+src-tauri/target/
+src-tauri/gen/
 
 # Intentionally hand-formatted. main.js mirrors the dense C++ original closely (prettier
 # would inflate it ~1570 -> ~2370 lines and rewrite half of it), which would destroy the
