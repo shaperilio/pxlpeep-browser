@@ -7,10 +7,9 @@ Thumbs.db
 .idea/
 *.swp
 
-# Node
+# Node — package.json/lock ARE committed: dev tooling only (syntax gate, formatter,
+# test harness). The extension itself still has zero dependencies and no build step.
 node_modules/
-package.json
-package-lock.json
 
 # Test artifacts
 test-viewer.js

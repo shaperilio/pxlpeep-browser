@@ -28,7 +28,10 @@ chrome.runtime.onInstalled.addListener(() => {
     // Can't sniff via the `browser` global — modern Chrome exposes that alias
     // too — so key off the UA (Firefox's always contains "Firefox").
     if (navigator.userAgent.includes("Firefox")) {
-      parent.icons = { 16: "loupe.iconset/icon_16x16.png", 32: "loupe.iconset/icon_32x32.png" };
+      parent.icons = {
+        16: "loupe.iconset/icon_16x16.png",
+        32: "loupe.iconset/icon_32x32.png",
+      };
     }
     chrome.contextMenus.create(parent);
     chrome.contextMenus.create({
@@ -53,7 +56,9 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   // non-image Content-Type — the in-place content script keys off
   // document.contentType, which such responses wouldn't satisfy.
   const viewerUrl =
-    chrome.runtime.getURL("viewer.html") + "?url=" + encodeURIComponent(info.srcUrl);
+    chrome.runtime.getURL("viewer.html") +
+    "?url=" +
+    encodeURIComponent(info.srcUrl);
   if (info.menuItemId === "pxlpeep-view-image" && tab?.id != null) {
     chrome.tabs.update(tab.id, { url: viewerUrl }); // this tab
   } else if (info.menuItemId === "pxlpeep-open-image") {
@@ -73,6 +78,8 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 chrome.runtime.onMessage.addListener((msg, sender) => {
   if (msg?.type !== "pxlpeep-fallback" || sender.tab?.id == null) return;
   const viewerUrl =
-    chrome.runtime.getURL("viewer.html") + "?url=" + encodeURIComponent(msg.url);
+    chrome.runtime.getURL("viewer.html") +
+    "?url=" +
+    encodeURIComponent(msg.url);
   chrome.tabs.update(sender.tab.id, { url: viewerUrl });
 });

@@ -97,9 +97,17 @@ warning; the real fix is per-browser manifests at store-packaging time (see `ROA
 
 ## Testing / verification
 
-No tests are checked in; `node_modules`, `package.json`, and the test artifacts are all
-gitignored, so there's no committed harness. There is no build — `node --check` on the JS files
-(`content/takeover.js`, `background/worker.js`, `content/main.js`) is the syntax gate.
+No tests are checked in (test artifacts and `node_modules` are gitignored). `package.json` **is**
+committed, but it is **dev tooling only** — the extension itself still has zero dependencies and
+no build step; nothing in `node_modules` ships.
+
+- **`npm run check`** — the gate: `node --check` on all four JS files plus a `manifest.json`
+  JSON-parse. Run this before handing off a change.
+- **`npm run format`** / **`format:check`** — prettier. `.prettierignore` exempts
+  **`content/main.js`** deliberately: it mirrors the dense C++ original closely, and prettier
+  would inflate it ~1570 → ~2370 lines and rewrite half of it, destroying the line-for-line
+  correspondence that makes the port maintainable. `manifest.json` (hand-aligned icon table) and
+  `*.md` (hand-wrapped prose) are exempt too. Everything else is prettier-clean — keep it that way.
 
 **Playwright verification pattern:** spin a local `http` server that serves the extension files
 AND a controllable image endpoint, then drive headless Chromium. Two angles:
@@ -112,12 +120,14 @@ AND a controllable image endpoint, then drive headless Chromium. Two angles:
 - Firefox behavior, the context menu (native UI), and real-site auth can't be covered
   headlessly — load the unpacked extension in each browser and test by hand.
 
-Set up Playwright ad hoc when needed (`npm init -y && npm i -D playwright && npx playwright
-install chromium`), run scratch harnesses from the repo root, delete after.
+Playwright isn't a committed devDependency yet — add it when a harness is actually needed
+(`npm i -D playwright && npx playwright install chromium`), run scratch harnesses from the repo
+root, and delete the harness after (but *do* commit the resulting `package.json`/lock change).
 
 ## Conventions
 
-- Prettier: 100 col, 2-space, double quotes, es5 trailing commas (`prettier.config.json`).
+- Prettier: 100 col, 2-space, double quotes, es5 trailing commas (`prettier.config.json`);
+  `content/main.js` is exempt on purpose (see Testing / verification).
 - Vanilla JS only, no framework, no build. Styling via `Object.assign(el.style, {...})`.
 - Shell: this is a Windows repo. The Bash tool uses POSIX sh; the PowerShell tool uses
   PS syntax — don't mix (`@'...'@` here-strings are PowerShell-only).

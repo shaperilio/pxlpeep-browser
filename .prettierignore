@@ -1,0 +1,12 @@
+node_modules/
+
+# Intentionally hand-formatted. main.js mirrors the dense C++ original closely (prettier
+# would inflate it ~1570 -> ~2370 lines and rewrite half of it), which would destroy the
+# line-for-line correspondence with pxlpeep's C++ source that makes the port maintainable.
+content/main.js
+
+# Hand-aligned icon table; prettier collapses the alignment.
+manifest.json
+
+# Docs are hand-wrapped prose.
+*.md

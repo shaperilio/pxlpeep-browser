@@ -20,7 +20,8 @@
   // Cover the native image immediately (no flash) with a plain <div> styled via
   // CSSOM — not a <style>/<link>, so it isn't subject to the page's CSP.
   const cover = document.createElement("div");
-  cover.style.cssText = "position:fixed;inset:0;background:#1a1a1a;z-index:2147483647";
+  cover.style.cssText =
+    "position:fixed;inset:0;background:#1a1a1a;z-index:2147483647";
   document.documentElement.appendChild(cover);
 
   let settled = false;
@@ -33,7 +34,10 @@
     } else {
       // In-place didn't take (sandbox/CSP blocked main.js). Redirect via the
       // background; leave the cover up until the tab navigates away.
-      chrome.runtime.sendMessage({ type: "pxlpeep-fallback", url: location.href });
+      chrome.runtime.sendMessage({
+        type: "pxlpeep-fallback",
+        url: location.href,
+      });
     }
   };
 
