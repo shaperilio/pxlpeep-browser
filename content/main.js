@@ -9,15 +9,17 @@ window.__pxlpeepActive = true;
 // CONSTANTS (ported from enums in ImageWindow.h / colormapper.h)
 // ══════════════════════════════════════════════════════════════════════════════
 
-const Scaling   = { Fit:0, Centered:1, User:2 };
-const ImgFn     = { OneToOne:0, Log10Brighten:1, Log10Darken:2, Brighten:3, Darken:4 };
-const Rotation  = { Zero:0, CCW90:1, CCW180:2, CCW270:3 };
-const Palette   = { Grey:0, GreyInv:1, GreySat:2, GreySatInv:3, ColorExp:4, Color1:5 };
+const Scaling  = { Fit:0, Centered:1, User:2 };
+const ImgFn    = { OneToOne:0, Log10Brighten:1, Log10Darken:2, Brighten:3, Darken:4 };
+const Rotation = { Zero:0, CCW90:1, CCW180:2, CCW270:3 };
+const Palette  = { Grey:0, GreyInv:1, GreySat:2, GreySatInv:3, ColorExp:4, Color1:5 };
+const CHAN_R   = 1, CHAN_G = 2, CHAN_B = 4;
+
 const PALETTE_NAMES = ["Grey","Inv. grey","Grey+sat","Inv. grey+sat","Color expansion","Colormap 1"];
-const FN_NAMES  = ["1:1","log brighten","log darken","parabolic brighten","parabolic darken"];
-const CHAN_R=1, CHAN_G=2, CHAN_B=4;
-const ZOOM_STEP = Math.SQRT2;
-const MAX_ZOOM  = 16, MIN_ZOOM = -16;
+const FN_NAMES      = ["1:1","log brighten","log darken","parabolic brighten","parabolic darken"];
+
+const ZOOM_STEP    = Math.SQRT2;
+const MAX_ZOOM     = 16, MIN_ZOOM = -16;
 const DELTA_THRESH = 100; // wheel accumulator threshold
 
 // ══════════════════════════════════════════════════════════════════════════════
