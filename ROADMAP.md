@@ -175,13 +175,44 @@ row built from external data). No need to design now.
 - Loading mechanism differs by target: Tauri reads a file / config dir directly; the browser
   can't freely read local files, so a file picker / drag-drop / paste-into-settings. Decide later.
 
+### 9. "About" panel (both targets)
+An about panel — version, credit to the C++ original (shaperilio) + author, project link. Render it
+as a **canvas overlay** using the existing status/error/help overlay pattern (`setStatus` /
+`showLoadError` in `main.js`) so it's shared between the extension and the desktop app. Surface it
+from the desktop app menu, and in the browser from the toolbar or a key (e.g. `?`).
+
 ## Platforms
 
 ### Tauri desktop wrapper
-For the native "double-click a local file opens pxlpeep" experience the browser extension
-can't provide (OS file associations point at apps, not extensions). `content/main.js` is
-self-contained vanilla JS + WebGL2, so it can be reused almost verbatim inside a Tauri
-shell (lightweight, OS webview). Gives real file associations + single-window behavior.
+Native "double-click a local file opens pxlpeep" (OS file associations point at apps, not
+extensions). `content/main.js` is reused **verbatim** inside the Tauri shell — see
+`src-tauri/README.md` for build prereqs.
+
+- ✅ **Shell done** (`44803bb`): a native window loads the shared viewer via
+  `content/desktop.html` + `desktop.js`, opening the image passed on the command line
+  (argv → init-script → `convertFileSrc` → `main.js`, unchanged). Verified end-to-end over CDP.
+- **File-open dialog** — *imperative.* An "open image" action that pops the standard OS open-file
+  dialog (Tauri `dialog` plugin). TBD whether to populate the dialog filter with the image
+  extensions we know we can decode (vs. just an all-files option). Naturally lives with the
+  main-window design below.
+- **Single-instance + coordinating "main window"** (design TBD — notes only). Replicate the C++
+  model: exactly one running instance; a small "main window" that coordinates viewer windows.
+  Double-clicking an associated image launches the app + opens a viewer; **subsequent** double-clicks
+  open a **new viewer in the existing instance**, not a second process. Drag an image onto a viewer
+  window → open it there; drag onto the main window → open a new viewer. (Tauri single-instance
+  plugin + the multi-window/sync engine from Feature #4.)
+- **Loupe icon** — replace Tauri's default icons with the pxlpeep loupe (`tauri icon` from a
+  high-res source; the C++ `loupe.icns` / `loupe.ico` / `loupe.iconset` are the source art).
+
+## Test fixtures
+
+- **Copy the C++ test images** into this repo — they live at `C:\Users\barf\pxlpeep\test_images`
+  (`f.png/.jpeg/.tif/.bmp`, `2x2.png`, `4x4 1bit.*`, several greyscale TIFFs, `CMYK.tif`,
+  `trans.png`, `test.tif`/`test2.tif`). Each is purpose-built to exercise a specific behavior (bit
+  depth, channels, transparency, tiny/odd dimensions, colorspaces). Add a short index of what each
+  targets; we'll extend the set. Useful for both builds and the eventual CI/Playwright harness.
+  Note several are TIFF/CMYK, which the browser can't decode today — ties into Feature #5 (16-bit /
+  TIFF decoder).
 
 ## Polish / store prep
 
