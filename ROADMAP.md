@@ -146,6 +146,9 @@ map to equal *perceived* steps.
 - **References** (read Kovesi first; cite it when we implement):
   - Kovesi, "Good Colour Maps: How to Design Them" — https://arxiv.org/abs/1509.03700 — the
     authoritative design method (uniform perceptual contrast / constant lightness gradient).
+    **§6 "Colours for Ternary Images" is of particular interest to pxlpeep** — it's a
+    3-channel / RGB inspector, so perceptual colours for ternary (three-component) data apply
+    directly, on top of the single-channel colormaps we also want.
   - https://colorcet.com/ — Kovesi's CET maps with data + test images (the applied output).
   - https://colorcet.holoviz.org/ — Python packaging; reference RGB values to check our LUT.
   - https://bids.github.io/colormap/ — "A Better Default Colormap" (viridis origin; accessible
