@@ -143,6 +143,13 @@ map to equal *perceived* steps.
   rainbow produces.
 - Fits the existing 256×N LUT machinery cleanly — just additional computed palette rows; the
   shader / colorbar path is unchanged.
+- **References** (read Kovesi first; cite it when we implement):
+  - Kovesi, "Good Colour Maps: How to Design Them" — https://arxiv.org/abs/1509.03700 — the
+    authoritative design method (uniform perceptual contrast / constant lightness gradient).
+  - https://colorcet.com/ — Kovesi's CET maps with data + test images (the applied output).
+  - https://colorcet.holoviz.org/ — Python packaging; reference RGB values to check our LUT.
+  - https://bids.github.io/colormap/ — "A Better Default Colormap" (viridis origin; accessible
+    intro to perceptual uniformity).
 
 ## Platforms
 
