@@ -154,6 +154,14 @@ map to equal *perceived* steps.
   - https://bids.github.io/colormap/ — "A Better Default Colormap" (viridis origin; accessible
     intro to perceptual uniformity).
 
+### 8. User-definable colormaps
+Let users supply their own colormap by dropping numbers into a text file pxlpeep reads — e.g. a
+simple list of RGB triples (256 rows, or a few control points interpolated), and ideally ingest
+colorcet's downloadable CSVs directly. Reuses the same LUT machinery as #7 (just another palette
+row built from external data). No need to design now.
+- Loading mechanism differs by target: Tauri reads a file / config dir directly; the browser
+  can't freely read local files, so a file picker / drag-drop / paste-into-settings. Decide later.
+
 ## Platforms
 
 ### Tauri desktop wrapper
