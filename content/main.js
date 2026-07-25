@@ -889,9 +889,10 @@ function drawInfoBox(ctx, ow, oh) {
 // drift with the cursor. That's what makes a *screenshot* legible — the OS cursor
 // isn't captured, so without the marker you can't tell which pixel the numbers
 // describe. Below the threshold the box just floats at the cursor (fractional coords).
-// Based on the C++ drawCursorInfoBox, but it snapped to a half-pixel grid (which can
-// land on the corner where 4 pixels meet — no single value applies); we snap to whole
-// pixels instead. The value line(s) are a pxlpeep addition too.
+// Based on the C++ drawCursorInfoBox, which snapped to a half-pixel grid — fine there,
+// since it showed only coordinates (X/Y/R/θ), for which a corner is a valid position.
+// We add a pixel-value line, and a value at the corner where 4 pixels meet is
+// meaningless — so we snap to whole pixels (the pixel center) instead.
 const CURSOR_MARKER_ZOOM = 32; // zoomFactor at/above which we snap + mark (C++ markerZoomLevel)
 
 function drawCursorBox(ctx, ow, oh) {
