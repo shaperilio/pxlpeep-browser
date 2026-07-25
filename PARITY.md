@@ -1,6 +1,6 @@
 # pxlpeep — C++ ↔ browser parity
 
-What the desktop C++ pxlpeep (`C:\Users\barf\pxlpeep`, ~4k LOC: `MainDialog.*`, `ImageWindow.cpp`
+What the desktop C++ pxlpeep (the original C++ source, ~4k LOC: `MainDialog.*`, `ImageWindow.cpp`
 [2376], `ImageData.cpp`, `colormapper.h`) does that the browser port dropped or changed. Captured
 by reading the source directly. Use this to steer the Tauri desktop build and to decide what's worth
 back-porting to the browser. See `ROADMAP.md` for the queued items; see `CLAUDE.md` for the current
@@ -112,8 +112,8 @@ reimplements via window move/resize (and it's the whole reason the C++ windows a
 ## 5. Portable, low-hanging fruit missing from the browser
 
 Worth adding to the shared core (benefits both targets); mostly small:
-- **Ctrl+3–7 center / corner image placement** — portable, not yet ported (Ctrl+1 fit / Ctrl+2 1:1
-  already are). `ImageWindow.cpp:703-757`.
+- ✅ **Ctrl+3–7 center / corner image placement** — ported (`e7bb475`; Ctrl+1 fit / Ctrl+2 1:1 were
+  already there). `ImageWindow.cpp:703-757`.
 - **Recompute min/max after white balance** so Fit-scale + colorbar track the correction. The JS WB
   handlers never call `recalcScale()`, so Fit/colorbar currently ignore WB entirely. Real behavioral
   gap. `main.js:1154-1164, 1441-1449`.

@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "pxlpeep",
   "version": "0.1.0",
-  "identifier": "io.emil.pxlpeep",
+  "identifier": "io.github.shaperilio.pxlpeep",
   "build": {
     "frontendDist": "../content"
   },
