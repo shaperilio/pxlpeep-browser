@@ -105,15 +105,22 @@ silently truncates the C++ app's **16-bit pipeline** to 8-bit (see `PARITY.md` �
 "pixel inspector" dynamic range is lost; restoring it needs a JS 16-bit decoder feeding the
 existing Float32 texture path.
 
-### 5. Restore the 16-bit / high-bit-depth pipeline
-See `PARITY.md` §1. The C++ handles 16-bit and 14-bit RAW, with readouts / Fit+User scale /
-colorbar spanning 0–65535. The browser port decodes through an 8-bit canvas and hardcodes
-`bpp:8`, so any 16-bit source is silently truncated to 8 bits — a real lost capability for
-inspecting high-bit-depth images (scientific / medical / RAW), even if much of pxlpeep's value is
-in the many features that already work fine at 8-bit.
-- **Approach:** a real in-JS 16-bit decoder (TIFF / PNG-16 → `Uint16`/`Float32`) feeding the
+### 5. Restore the high-bit-depth pipeline (16 / 32 / float)
+See `PARITY.md` §1. The C++ handles 16-bit and 14-bit, with readouts / Fit+User scale / colorbar
+spanning the full range. The browser port decodes through an 8-bit canvas and hardcodes `bpp:8`, so
+any high-bit-depth source is silently truncated to 8 bits — a real lost capability for inspecting
+scientific / medical / RAW images, even if much of pxlpeep's value is in the features that already
+work fine at 8-bit. **No reason to cap at 16-bit** — design for 16, **32-bit, and eventually
+floating-point** images too.
+- **Approach:** a real in-JS decoder (TIFF / PNG-16 → `Uint16`/`Float32`, later float) feeding the
   existing Float32 GPU texture path. The shader's `uMaxRaw` machinery is already threaded for it
   (the "dead generality" in CLAUDE.md). Pairs with TIFF support (`PARITY.md` §6).
+- **Need high-bit-depth test images — we have none** (every current fixture is ≤ 8-bit; see
+  `test_images/README.md`). Key subtlety: **bit depth is not recoverable from the raw bytes** — a
+  "fully white" 14-bit image and a "very bright" 16-bit image are byte-identical on disk. ImageJ's
+  auto-scaling nonetheless seemed to *infer* the true bit depth, so we need fixtures that are **not
+  fully white / not saturated** (partial-range 12/14/16-bit content) to experiment with that
+  detection. Ties into the far-side "auto-detect real bit depth (ImageJ heuristic)" research.
 - Big effort, shared by both targets.
 
 ### 6. Back-port the "free wins" from the C++ original (`PARITY.md` §5)
@@ -128,8 +135,10 @@ implement them once through the abstraction rather than twice and reconciling).
 - **Recompute min/max after white balance** so Fit-scale + colorbar track the correction
   (currently ignored — a real gap).
 - **Fit min/max over per-channel values, not luminance** (color images differ from desktop).
-- **Show EXIF firmware** (already parsed into `S.exif.firmware`, just not displayed) + app
-  version in the help header.
+- **Show EXIF Software/firmware field** — the standard EXIF `Software` tag (0x0131), a normal
+  cross-vendor field, already parsed into `S.exif.firmware`, just not displayed. Plus the app
+  version in the help header. (Distinct from the C++'s *camera-specific* MakerNote sensor/DSP/
+  battery temperatures — single-vendor, deliberately not ported.)
 
 **Env-touching — after the Tauri seam:**
 - **Reload control.** Whether this should exist *at all* is target- and era-dependent, which is
@@ -274,9 +283,10 @@ Advanced "true raw" inspection — low priority, research-y, and mostly only mea
 16-bit+ pipeline (Feature #5) exists.
 
 - **Arbitrary-bit-depth headerless raw ("true raw").** Support *any* bit depth for a headerless
-  raw dump — not the 14-bit special case in the C++ (`PARITY.md` §6), which was a leftover from
-  a specific years-ago task. The general problem: given raw bytes with no header, recover
-  dimensions, bit depth, packing, endianness, and channel layout.
+  raw dump — not the 14-bit special case in the C++ (`PARITY.md` §6), which was a leftover from a
+  specific years-ago task (**likely GoPro** sensor dumps — the C++ reader guesses dimensions from a
+  hardcoded table of GoPro-ish sensor resolutions and assumes 14-bit). The general problem: given
+  raw bytes with no header, recover dimensions, bit depth, packing, endianness, and channel layout.
 - **Auto-detect the real bit depth.** ImageJ has code that infers a raw image's actual bit depth
   even when the data never reaches full-black / full-white — mechanism unknown (never looked into
   it); worth digging through ImageJ's implementation one day.
