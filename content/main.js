@@ -884,12 +884,14 @@ function drawInfoBox(ctx, ow, oh) {
 }
 
 // ── Cursor box ────────────────────────────────────────────────────────────────
-// Above a zoom threshold, snap to the nearest half-pixel: drop a nested-square
-// marker there and anchor the info box to it, so the readout doesn't drift with
-// the cursor. That's what makes a *screenshot* legible — the OS cursor isn't
-// captured, so without the marker you can't tell which pixel the numbers describe.
-// Below the threshold the box just floats at the cursor (fractional coords).
-// Ported from the C++ drawCursorInfoBox; the value line(s) are a pxlpeep addition.
+// Above a zoom threshold, snap to the CENTER of the pixel under the cursor: drop a
+// nested-square marker there and anchor the info box to it, so the readout doesn't
+// drift with the cursor. That's what makes a *screenshot* legible — the OS cursor
+// isn't captured, so without the marker you can't tell which pixel the numbers
+// describe. Below the threshold the box just floats at the cursor (fractional coords).
+// Based on the C++ drawCursorInfoBox, but it snapped to a half-pixel grid (which can
+// land on the corner where 4 pixels meet — no single value applies); we snap to whole
+// pixels instead. The value line(s) are a pxlpeep addition too.
 const CURSOR_MARKER_ZOOM = 32; // zoomFactor at/above which we snap + mark (C++ markerZoomLevel)
 
 function drawCursorBox(ctx, ow, oh) {
@@ -899,9 +901,10 @@ function drawCursorBox(ctx, ow, oh) {
   let refX, refY;
 
   if (Math.round(S.zoomFactor*100) >= CURSOR_MARKER_ZOOM*100) {
-    // Snap to the nearest half-pixel (a pixel center lands on the x.5 grid).
-    ix=Math.floor(ix*2+0.5)/2;
-    iy=Math.floor(iy*2+0.5)/2;
+    // Snap to the CENTER of the pixel under the cursor (whole pixels only), so the
+    // marker sits on a real pixel and the value shown is that pixel's value.
+    ix=Math.floor(ix)+0.5;
+    iy=Math.floor(iy)+0.5;
     [refX,refY]=imgToView(ix,iy);
     refX=Math.round(refX); refY=Math.round(refY);
     // Nested squares black/white/black so the marker reads over any pixel value.
