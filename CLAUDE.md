@@ -97,8 +97,10 @@ warning; the real fix is per-browser manifests at store-packaging time (see `ROA
 
 ## Testing / verification
 
-No tests are checked in (test artifacts and `node_modules` are gitignored). `package.json` **is**
-committed, but it is **dev tooling only** — the extension itself still has zero dependencies and
+No automated tests are checked in (scratch harnesses and `node_modules` are gitignored), but
+`test_images/` holds committed image fixtures imported from the C++ original (see its README) —
+purpose-built to exercise formats / bit depths / channels / transparency / odd sizes. `package.json`
+**is** committed, but it is **dev tooling only** — the extension itself still has zero dependencies and
 no build step; nothing in `node_modules` ships.
 
 - **`npm run check`** — the gate: `node --check` on all four JS files plus a `manifest.json`

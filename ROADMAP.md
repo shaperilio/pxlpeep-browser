@@ -206,13 +206,11 @@ extensions). `content/main.js` is reused **verbatim** inside the Tauri shell —
 
 ## Test fixtures
 
-- **Copy the C++ test images** into this repo — they live at `C:\Users\barf\pxlpeep\test_images`
-  (`f.png/.jpeg/.tif/.bmp`, `2x2.png`, `4x4 1bit.*`, several greyscale TIFFs, `CMYK.tif`,
-  `trans.png`, `test.tif`/`test2.tif`). Each is purpose-built to exercise a specific behavior (bit
-  depth, channels, transparency, tiny/odd dimensions, colorspaces). Add a short index of what each
-  targets; we'll extend the set. Useful for both builds and the eventual CI/Playwright harness.
-  Note several are TIFF/CMYK, which the browser can't decode today — ties into Feature #5 (16-bit /
-  TIFF decoder).
+- ✅ **Copied the C++ test images** into `test_images/` (14 files) with a factual index in
+  `test_images/README.md`. Each is purpose-built (format, bit depth, channels, transparency,
+  tiny/odd dimensions, CMYK). Remaining: confirm/annotate the exact "what each checks" (the author
+  designed them), extend the set, and wire them into the eventual CI/Playwright harness. Several are
+  TIFF/CMYK, which the browser can't decode today — ties into Feature #5 (16-bit / TIFF decoder).
 
 ## Polish / store prep
 
