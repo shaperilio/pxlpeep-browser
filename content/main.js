@@ -94,12 +94,13 @@ const S = {
 // ══════════════════════════════════════════════════════════════════════════════
 // ENVIRONMENT SEAM
 // ══════════════════════════════════════════════════════════════════════════════
-// The one place the two shells differ for output. The Tauri desktop shell sets
-// window.__pxlpeepEnv (see content/desktop.js) with a native Save-As dialog and a
-// desktop reload; the browser extension leaves it unset and inherits this default —
-// a download-anchor save and the async Clipboard API. Everything else in this file
-// is identical across both, so features get written once, here, not twice.
-const env = window.__pxlpeepEnv || {
+// The one place the two shells differ. These are the browser defaults; the Tauri
+// shell (content/desktop.js) sets window.__pxlpeepEnv to override individual keys —
+// at minimum `isDesktop:true`, which switches on the desktop-only reload — and
+// inherits every key it doesn't replace. Object.assign, not `||`, so the desktop
+// can flip one flag without having to re-supply save/copyImage. Everything else in
+// this file is shell-agnostic, so features get written once, here, not twice.
+const env = Object.assign({
   isDesktop: false,
   // Save a Blob under a suggested filename (browser: trigger a download).
   save(blob, filename) {
@@ -112,7 +113,7 @@ const env = window.__pxlpeepEnv || {
   copyImage(blob) {
     return navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
   },
-};
+}, window.__pxlpeepEnv);
 
 // ══════════════════════════════════════════════════════════════════════════════
 // IMAGE FUNCTIONS (ported from ImageWindow.cpp)
@@ -1241,8 +1242,11 @@ function onKeyDown(e) {
       } else { S.scaling=Scaling.Fit; }
       recalcScale(); break;
 
+    case "F5":
+      // Desktop: reload the image. Browser: let the tab refresh (handled=false).
+      if(env.isDesktop){reloadImage();} else handled=false; break;
     case "r":case "R":
-      if(ctrl){handled=false;break;}
+      if(ctrl){ if(env.isDesktop){reloadImage();} else handled=false; break; }
       S.channels=shift?CHAN_R:(S.channels^CHAN_R)||CHAN_R; break;
     case "g":case "G":
       S.channels=shift?CHAN_G:(S.channels^CHAN_G)||CHAN_G; break;
@@ -1828,6 +1832,16 @@ function startLoad(){
     if(exif){S.exif=exif; refreshToolbar();}
   });
 }
+
+// Desktop reload (Ctrl+R / F5): drop the memoized source blob and re-run the full
+// load — re-fetch, re-decode, re-parse EXIF. The browser doesn't bind this (F5 just
+// reloads the tab); it's for the Tauri shell, which has no browser chrome, and will
+// matter in the browser too once a playlist/workspace makes a bare tab refresh lose
+// accumulated state instead of just re-reading one image.
+function reloadImage(){
+  _sourceBlobPromise = null;
+  startLoad();
+}
 startLoad();
 
 // ── Mouse events ──────────────────────────────────────────────────────────────
@@ -1894,7 +1908,7 @@ window.addEventListener("keyup",onKeyUp);
 window.addEventListener("resize",()=>{sizeCanvases();requestFrame();});
 
 // Test hooks
-window.__pxlpeep = { S, env, computeWBColor, computeWBGrey, recalcScale, recomputeMinMax, loadImage, zoomToFit, zoomTo1to1, pixelReadout, mappedSuffix, save, copyToClipboard };
+window.__pxlpeep = { S, env, computeWBColor, computeWBGrey, recalcScale, recomputeMinMax, loadImage, zoomToFit, zoomTo1to1, pixelReadout, mappedSuffix, save, copyToClipboard, reloadImage };
 
 // Initial frame
 requestFrame();

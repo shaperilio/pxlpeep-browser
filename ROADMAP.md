@@ -145,9 +145,10 @@ implement them once through the abstraction rather than twice and reconciling).
   (Distinct from the C++'s *camera-specific* MakerNote sensor/DSP/battery temperatures — single-
   vendor, deliberately not ported.)
 
-**Env-touching — the `window.__pxlpeepEnv` seam now exists** (`content/main.js`, browser default =
-download-anchor save + async Clipboard API; the Tauri shell overrides it in `content/desktop.js`).
-Output features route through it so they're written once:
+**Env-touching — the `window.__pxlpeepEnv` seam now exists.** Browser defaults live in
+`content/main.js` (download-anchor save + async Clipboard API); the Tauri shell overrides
+individual keys in `content/desktop.js` via `Object.assign` (not `||`), so it can flip one flag —
+today just `isDesktop:true` — and inherit the rest. Output features route through it, written once:
 - ✅ **Clipboard copy** of the mapped image (**Ctrl+C**) / on-screen screenshot (**Ctrl+Shift+C**) —
   browser side done via `env.copyImage` (Clipboard API, PNG). Saves moved off Ctrl+C onto the
   Ctrl+S family; help text corrected. *Tauri backend pending* (Increment 3, if WebView2's
@@ -156,11 +157,16 @@ Output features route through it so they're written once:
   encoding scaling / transfer fn / palette / dip / rotation / flips / channels, e.g.
   `rgb_fit_logDark_cmap1_dip1.50_rot270_flipV_-GB.png` (the C++'s raw-int `_s0_f2_m5_r3`, made
   legible). Routed through `env.save`, so the native Save-As dialog reuses it verbatim in Tauri.
-- **Reload control** — *still pending, Tauri-first by design.* Not needed in the browser today (F5
-  reloads the tab); needed in Tauri (no browser chrome), bound to **Ctrl+R / F5**; and needed in
-  the browser too **once the playlist/workspace lands** (a tab refresh would then discard
-  accumulated state, not just re-fetch one image). Core mechanic: clear `_sourceBlobPromise`,
-  re-run `startLoad`; the binding gates on `env.isDesktop`. Lands with the Tauri env in Increment 3.
+- ✅ **Reload control** — implemented. `reloadImage()` clears `_sourceBlobPromise` and re-runs
+  `startLoad` (re-fetch, re-decode, re-parse EXIF); bound to **Ctrl+R / F5**, gated on
+  `env.isDesktop` so the browser still lets those keys refresh the tab. `content/desktop.js` sets
+  `isDesktop:true`. Browser-verified with `isDesktop` mocked: direct reload re-fetches; browser-mode
+  F5/Ctrl+R don't hijack; desktop-mode F5 and Ctrl+R each re-fetch. Becomes useful in the browser
+  too once the playlist/workspace lands (a bare tab refresh would then discard accumulated state).
+  **Follow-up (needs a live desktop window, so left for an interactive session):** confirm WebView2
+  doesn't eat F5/Ctrl+R before the page, and whether the inherited browser save/`navigator.clipboard`
+  actually work inside WebView2 — if not, add a native-dialog / native-clipboard override in
+  `desktop.js` (a per-method `__pxlpeepEnv` key; no `main.js` change needed).
 
 ### 7. Perceptually-uniform / cognitive-response palettes
 The current palettes (`buildLUT`, ported from the C++ `colormapper.h`) were designed ad hoc for
