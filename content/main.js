@@ -150,6 +150,35 @@ function recalcScale() {
   }
 }
 
+// Recompute the image min/max over the WHITE-BALANCED values, so Fit-scale and the
+// colorbar track a WB correction. WB is applied non-destructively as shader gains, so
+// we fold the same gains in here: per-channel gains for color, per-Bayer-quad gains
+// for grey (identity gains reproduce the raw per-channel range from load). Call after
+// any WB change, then recalcScale().
+function recomputeMinMax() {
+  const img = S.image;
+  if (!img) return;
+  const { width, height, data, numChannels } = img;
+  let minV = Infinity, maxV = -Infinity;
+  if (numChannels === 1) {
+    const g = S.wbGrey; // [g00,g10,g01,g11], indexed (x%2)+(y%2)*2 — matches the shader
+    for (let y=0; y<height; y++) for (let x=0; x<width; x++) {
+      const v = data[y*width+x]*255*g[(x%2)+(y%2)*2];
+      if (v<minV) minV=v; if (v>maxV) maxV=v;
+    }
+  } else {
+    const gr=S.wbColor[0], gg=S.wbColor[1], gb=S.wbColor[2];
+    for (let i=0; i<width*height; i++) {
+      const s=i*3;
+      const r=data[s]*255*gr, g=data[s+1]*255*gg, b=data[s+2]*255*gb;
+      if (r<minV) minV=r; if (r>maxV) maxV=r;
+      if (g<minV) minV=g; if (g>maxV) maxV=g;
+      if (b<minV) minV=b; if (b>maxV) maxV=b;
+    }
+  }
+  img.minValue = minV; img.maxValue = maxV;
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // LUT (ported from colormapper.h)
 // ══════════════════════════════════════════════════════════════════════════════
@@ -594,9 +623,11 @@ function loadImage(url) {
             floats[i*3]   = data[s]/255;
             floats[i*3+1] = data[s+1]/255;
             floats[i*3+2] = data[s+2]/255;
-            const lum = data[s]*0.299+data[s+1]*0.587+data[s+2]*0.114;
-            if (lum<minV) minV=lum;
-            if (lum>maxV) maxV=lum;
+            // Fit/colorbar span the per-channel value range (matches the C++), not
+            // luminance — so a single saturated channel still drives Fit scaling.
+            if (data[s]  <minV) minV=data[s];   if (data[s]  >maxV) maxV=data[s];
+            if (data[s+1]<minV) minV=data[s+1]; if (data[s+1]>maxV) maxV=data[s+1];
+            if (data[s+2]<minV) minV=data[s+2]; if (data[s+2]>maxV) maxV=data[s+2];
           }
         }
 
@@ -863,7 +894,8 @@ function drawInfoBox(ctx, ow, oh) {
     const e=S.exif;
     if (e.iso!=null&&e.shutterMs!=null)
       lines.push(`ISO ${e.iso}  ${e.shutterMs.toFixed(2)} ms${e.aperture!=null?`  f/${e.aperture.toFixed(1)}`:""}${e.ev!=null?`  EV ${e.ev.toFixed(2)}`:""}`);
-    if (e.date) lines.push(`${e.date}${e.make?" — "+e.make:""}`);
+    const meta=[e.date, e.make, e.firmware].filter(Boolean).join(" — ");
+    if (meta) lines.push(meta);
   }
 
   // Cursor info — shared readout at the raw cursor position.
@@ -1205,13 +1237,14 @@ function onKeyDown(e) {
 
     case "w":case "W":
       if(ctrl){handled=false;break;}
-      if(shift){S.wbColor=[1,1,1];S.wbGrey=[1,1,1,1];break;}
+      if(shift){S.wbColor=[1,1,1];S.wbGrey=[1,1,1,1];recomputeMinMax();recalcScale();break;}
       if(S.roi.valid&&S.image){
         const roi=S.roi;
         if(S.image.numChannels===1)
           S.wbGrey=computeWBGrey(S.image,roi.x1,roi.y1,roi.x2,roi.y2);
         else
           S.wbColor=computeWBColor(S.image,roi.x1,roi.y1,roi.x2,roi.y2);
+        recomputeMinMax();recalcScale();
       }
       break;
 
@@ -1515,10 +1548,10 @@ function buildToolbar() {
       if(S.roi.valid&&S.image){
         if(S.image.numChannels===1) S.wbGrey=computeWBGrey(S.image,S.roi.x1,S.roi.y1,S.roi.x2,S.roi.y2);
         else S.wbColor=computeWBColor(S.image,S.roi.x1,S.roi.y1,S.roi.x2,S.roi.y2);
-        requestFrame();
+        recomputeMinMax();recalcScale();requestFrame();refresh();
       }
     }),
-    btn("reset","Reset white balance",()=>{S.wbColor=[1,1,1];S.wbGrey=[1,1,1,1];requestFrame();}),
+    btn("reset","Reset white balance",()=>{S.wbColor=[1,1,1];S.wbGrey=[1,1,1,1];recomputeMinMax();recalcScale();requestFrame();refresh();}),
   ));
 
   // ── Overlays ──
@@ -1578,8 +1611,10 @@ function buildToolbar() {
     jpegCb.checked=S.forceJpeg;
     if(S.exif){
       const e=S.exif; let html="";
-      if(e.make) html+=`<div>${e.make}</div>`;
-      if(e.date) html+=`<div>${e.date}</div>`;
+      const esc=s=>String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+      if(e.make)     html+=`<div>${esc(e.make)}</div>`;
+      if(e.date)     html+=`<div>${esc(e.date)}</div>`;
+      if(e.firmware) html+=`<div>${esc(e.firmware)}</div>`;
       if(e.iso!=null){
         html+=`<div>ISO ${e.iso}`;
         if(e.shutterMs!=null) html+=`  ${e.shutterMs.toFixed(1)} ms`;
@@ -1799,7 +1834,7 @@ window.addEventListener("keyup",onKeyUp);
 window.addEventListener("resize",()=>{sizeCanvases();requestFrame();});
 
 // Test hooks
-window.__pxlpeep = { S, computeWBColor, computeWBGrey, recalcScale, loadImage, zoomToFit, zoomTo1to1, pixelReadout };
+window.__pxlpeep = { S, computeWBColor, computeWBGrey, recalcScale, recomputeMinMax, loadImage, zoomToFit, zoomTo1to1, pixelReadout };
 
 // Initial frame
 requestFrame();
