@@ -181,6 +181,21 @@ as a **canvas overlay** using the existing status/error/help overlay pattern (`s
 `showLoadError` in `main.js`) so it's shared between the extension and the desktop app. Surface it
 from the desktop app menu, and in the browser from the toolbar or a key (e.g. `?`).
 
+### 10. Clipboard input + desktop file-triage (remaining C++ help-menu shortcuts)
+Found by reconciling against the C++ help menu — not ported and not previously captured (mostly
+file/clipboard workflows):
+- **Paste image / URL from clipboard (Ctrl+V)** — paste a bitmap, or text that is a URL (download +
+  inspect). Cross-target: browser via the `paste` event in `viewer.html`; desktop via the Tauri
+  clipboard. The URL half overlaps the existing `viewer.html?url=` entry point.
+- **Clipboard monitor / auto-open on copy (Ctrl+Alt+V)** — background-poll the clipboard and open any
+  newly copied image/URL ("copy an image anywhere, it appears in pxlpeep"). Desktop-only (continuous
+  polling isn't appropriate for a content script).
+- **Delete current image to trash (Del)** — C++ soft-deletes to a `.pxlpeep_trash` subfolder.
+  Desktop-only and **destructive** — decide whether we even want it (the browser can't and shouldn't
+  touch the filesystem).
+- **Bucket sort (Alt+0-9)** — copy the current file into a `pxlpeep_bucket_N` folder for rapid
+  triage/culling of a directory. Desktop-only; pairs with folder navigation (Feature #4).
+
 ## Platforms
 
 ### Tauri desktop wrapper
