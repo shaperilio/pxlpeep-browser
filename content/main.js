@@ -814,6 +814,38 @@ function blackBox(ctx, x,y,w,h) {
   ctx.fillStyle="rgba(0,0,0,0.85)"; ctx.fillRect(x,y,w,h);
 }
 
+// Shared cursor readout — display X/Y, polar R/θ about the image center, and the
+// pixel value(s) at (ix,iy). Used by BOTH the top-right info box and the cursor
+// box so their numbers always agree. Returns val=null when (ix,iy) is off-image.
+function pixelReadout(ix, iy) {
+  const img=S.image;
+  const dispW=(S.rotation===1||S.rotation===3)?img.height:img.width;
+  const dispH=(S.rotation===1||S.rotation===3)?img.width:img.height;
+  let curX=ix+(S.zeroIdx?0:1)-0.5;
+  let curY=iy+(S.zeroIdx?0:1)-0.5;
+  if(S.yFlip) curY=dispH-curY;
+  const rX=curX-(S.zeroIdx?0:1)-dispW/2+0.5;
+  const rY=curY-(S.zeroIdx?0:1)-dispH/2+0.5;
+  const R=Math.sqrt(rX*rX+rY*rY);
+  const theta=Math.atan2(rY,rX)*180/Math.PI;
+  let val=null;
+  const px=Math.floor(ix), py=Math.floor(iy);
+  if(px>=0&&px<img.width&&py>=0&&py<img.height) {
+    const maxV=(1<<img.bpp)-1;
+    if(img.numChannels===1) {
+      val=String(Math.round(img.data[py*img.width+px]*maxV));
+    } else {
+      const i=(py*img.width+px)*3;
+      const rv=Math.round(img.data[i]*maxV), gv=Math.round(img.data[i+1]*maxV), bv=Math.round(img.data[i+2]*maxV);
+      const R2=(S.channels&CHAN_R)?String(rv):"OFF";
+      const G2=(S.channels&CHAN_G)?String(gv):"OFF";
+      const B2=(S.channels&CHAN_B)?String(bv):"OFF";
+      val=`${R2}, ${G2}, ${B2}`;
+    }
+  }
+  return {curX, curY, R, theta, val};
+}
+
 // ── Info box ──────────────────────────────────────────────────────────────────
 function drawInfoBox(ctx, ow, oh) {
   if (!S.image) return;
@@ -834,35 +866,11 @@ function drawInfoBox(ctx, ow, oh) {
     if (e.date) lines.push(`${e.date}${e.make?" — "+e.make:""}`);
   }
 
-  // Cursor info
+  // Cursor info — shared readout at the raw cursor position.
   const [ix,iy]=viewToImg(S.cursorX,S.cursorY);
-  const dispW=(S.rotation===1||S.rotation===3)?img.height:img.width;
-  const dispH=(S.rotation===1||S.rotation===3)?img.width:img.height;
-  let curX=ix+(S.zeroIdx?0:1)-0.5;
-  let curY=iy+(S.zeroIdx?0:1)-0.5;
-  if(S.yFlip) curY=dispH-curY;
-  const rX=curX-(S.zeroIdx?0:1)-dispW/2+0.5;
-  const rY=curY-(S.zeroIdx?0:1)-dispH/2+0.5;
-  const R=Math.sqrt(rX*rX+rY*rY);
-  const theta=Math.atan2(rY,rX)*180/Math.PI;
-  let line5=`X=${curX.toFixed(1)} Y=${curY.toFixed(1)}  R=${R.toFixed(1)} θ=${theta.toFixed(1)}°`;
-
-  const px=Math.floor(ix), py=Math.floor(iy);
-  if(px>=0&&px<img.width&&py>=0&&py<img.height) {
-    const maxV=(1<<img.bpp)-1;
-    if(img.numChannels===1) {
-      line5+=`  → ${Math.round(img.data[py*img.width+px]*maxV)}`;
-    } else {
-      const i=(py*img.width+px)*3;
-      const rv=Math.round(img.data[i]*maxV);
-      const gv=Math.round(img.data[i+1]*maxV);
-      const bv=Math.round(img.data[i+2]*maxV);
-      const R2=(S.channels&CHAN_R)?String(rv):"OFF";
-      const G2=(S.channels&CHAN_G)?String(gv):"OFF";
-      const B2=(S.channels&CHAN_B)?String(bv):"OFF";
-      line5+=`  → ${R2}, ${G2}, ${B2}`;
-    }
-  }
+  const rd=pixelReadout(ix,iy);
+  let line5=`X=${rd.curX.toFixed(1)} Y=${rd.curY.toFixed(1)}  R=${rd.R.toFixed(1)} θ=${rd.theta.toFixed(1)}°`;
+  if(rd.val!==null) line5+=`  → ${rd.val}`;
   lines.push(line5);
 
   const maxW=Math.max(...lines.map(l=>tw(ctx,l)));
@@ -876,19 +884,50 @@ function drawInfoBox(ctx, ow, oh) {
 }
 
 // ── Cursor box ────────────────────────────────────────────────────────────────
+// Above a zoom threshold, snap to the nearest half-pixel: drop a nested-square
+// marker there and anchor the info box to it, so the readout doesn't drift with
+// the cursor. That's what makes a *screenshot* legible — the OS cursor isn't
+// captured, so without the marker you can't tell which pixel the numbers describe.
+// Below the threshold the box just floats at the cursor (fractional coords).
+// Ported from the C++ drawCursorInfoBox; the value line(s) are a pxlpeep addition.
+const CURSOR_MARKER_ZOOM = 32; // zoomFactor at/above which we snap + mark (C++ markerZoomLevel)
+
 function drawCursorBox(ctx, ow, oh) {
   if (!S.image) return;
-  const [ix,iy]=viewToImg(S.cursorX,S.cursorY);
+  let [ix,iy]=viewToImg(S.cursorX,S.cursorY);
   const lineH=lh(ctx);
-  const l1=`X = ${(ix+(S.zeroIdx?0:1)-0.5).toFixed(1)}, Y = ${(iy+(S.zeroIdx?0:1)-0.5).toFixed(1)}`;
-  const l2="";
-  const bw=tw(ctx,l1)+MAR*2, bh=lineH*2+MAR*2;
-  let bx=S.cursorX-ow/2*0+14, by=S.cursorY+14; // relative to viewport
+  let refX, refY;
+
+  if (Math.round(S.zoomFactor*100) >= CURSOR_MARKER_ZOOM*100) {
+    // Snap to the nearest half-pixel (a pixel center lands on the x.5 grid).
+    ix=Math.floor(ix*2+0.5)/2;
+    iy=Math.floor(iy*2+0.5)/2;
+    [refX,refY]=imgToView(ix,iy);
+    refX=Math.round(refX); refY=Math.round(refY);
+    // Nested squares black/white/black so the marker reads over any pixel value.
+    const third=3, half=9, size=18;
+    ctx.fillStyle="#000"; ctx.fillRect(refX-half,          refY-half,          size,          size);
+    ctx.fillStyle="#fff"; ctx.fillRect(refX-half+third,    refY-half+third,    size-2*third,  size-2*third);
+    ctx.fillStyle="#000"; ctx.fillRect(refX-half+2*third,  refY-half+2*third,  size-4*third,  size-4*third);
+  } else {
+    refX=S.cursorX; refY=S.cursorY;
+  }
+
+  const rd=pixelReadout(ix,iy);
+  const lines=[
+    `X = ${rd.curX.toFixed(1)}, Y = ${rd.curY.toFixed(1)}`,
+    `R = ${rd.R.toFixed(1)}, θ = ${rd.theta.toFixed(1)}°`,
+  ];
+  if (rd.val!==null) lines.push(rd.val);
+
+  const maxW=Math.max(...lines.map(l=>tw(ctx,l)));
+  const bw=maxW+MAR*2, bh=lineH*lines.length+MAR*2;
+  let bx=refX+10, by=refY+10;
   bx=Math.max(0,Math.min(ow-bw,bx));
   by=Math.max(0,Math.min(oh-bh,by));
   blackBox(ctx,bx,by,bw,bh);
   ctx.fillStyle="#fff";
-  ctx.fillText(l1, bx+MAR, by+MAR+lineH);
+  lines.forEach((l,i)=>ctx.fillText(l, bx+bw-tw(ctx,l)-MAR, by+MAR+lineH*(i+1)-2));
 }
 
 // ── Rulers ────────────────────────────────────────────────────────────────────
@@ -1756,7 +1795,7 @@ window.addEventListener("keyup",onKeyUp);
 window.addEventListener("resize",()=>{sizeCanvases();requestFrame();});
 
 // Test hooks
-window.__pxlpeep = { S, computeWBColor, computeWBGrey, recalcScale, loadImage, zoomToFit, zoomTo1to1 };
+window.__pxlpeep = { S, computeWBColor, computeWBGrey, recalcScale, loadImage, zoomToFit, zoomTo1to1, pixelReadout };
 
 // Initial frame
 requestFrame();

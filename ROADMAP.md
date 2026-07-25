@@ -210,6 +210,15 @@ content — and it can't touch the filesystem anyway.
 - **Bucket sort (Alt+0-9)** — copy the current file into a `pxlpeep_bucket_N` folder for rapid
   triage/culling of a directory. Desktop-only; pairs with folder navigation (Feature #4).
 
+### 11. Latched / multiple info boxes (screenshot annotation)
+The cursor box's snap-to-pixel marker exists precisely so a screenshot is self-explanatory — the OS
+cursor isn't captured, so the anchored marker shows which pixel the numbers describe. Extension: let
+the user **drop several** anchored boxes on one image to annotate multiple points in a single
+screenshot. Possible interaction: hold Space to show the live cursor box, **click to latch** a copy
+to that pixel (each latched box keeps its own marker + X/Y/R/θ/value); some key clears them.
+Cross-target (both the extension and the desktop app). `S` would need an array of latched readouts
+that `drawAll` renders alongside the live one.
+
 ## Platforms
 
 ### Tauri desktop wrapper
