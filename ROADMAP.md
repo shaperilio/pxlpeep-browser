@@ -132,26 +132,35 @@ implement them once through the abstraction rather than twice and reconciling).
 **Pure core — safe anytime:**
 - ✅ **Ctrl+3–7 center / corner positioning** — done (`e7bb475`), confirmed working in a real
   browser (the `Ctrl+<number>` binding reaches the page; it isn't eaten by tab-switching).
-- **Recompute min/max after white balance** so Fit-scale + colorbar track the correction
-  (currently ignored — a real gap).
-- **Fit min/max over per-channel values, not luminance** (color images differ from desktop).
-- **Show EXIF Software/firmware field** — the standard EXIF `Software` tag (0x0131), a normal
-  cross-vendor field, already parsed into `S.exif.firmware`, just not displayed. Plus the app
-  version in the help header. (Distinct from the C++'s *camera-specific* MakerNote sensor/DSP/
-  battery temperatures — single-vendor, deliberately not ported.)
+- ✅ **Recompute min/max after white balance** so Fit-scale + colorbar track the correction —
+  done (`51d2eae`); `recomputeMinMax()` folds the WB gains in and re-runs on every WB apply.
+- ✅ **Fit min/max over per-channel values, not luminance** — done (`51d2eae`); a single
+  saturated channel now drives Fit scaling, matching the desktop.
+- ◐ **Show EXIF Software/firmware field** — firmware display **done** (`51d2eae`): the standard
+  EXIF `Software` tag (0x0131), already parsed into `S.exif.firmware`, now shown in the info box
+  and toolbar (and the toolbar's make/date/firmware are now HTML-escaped, closing an injection
+  hole). *Remaining:* the **app version in the help header** — deferred until the repo settles on
+  one canonical version (`package.json` 1.0.0 vs `tauri.conf.json` 0.1.0 vs `manifest.json`), and
+  a version string reachable from all three run contexts (main-world inject has no `chrome.runtime`).
+  (Distinct from the C++'s *camera-specific* MakerNote sensor/DSP/battery temperatures — single-
+  vendor, deliberately not ported.)
 
-**Env-touching — after the Tauri seam:**
-- **Reload control.** Whether this should exist *at all* is target- and era-dependent, which is
-  the clearest case for doing Tauri first: it's **not needed in the browser today** (F5 reloads
-  the tab and achieves the same thing); it **is** needed in Tauri (no browser chrome), where it
-  should bind to **Ctrl+R / F5** so the keystroke matches browser muscle memory; and it becomes
-  needed in the browser too **once the playlist/workspace lands**, since a tab refresh would then
-  discard accumulated state instead of just re-fetching one image. Core mechanic is the same
-  (clear `_sourceBlobPromise`, re-run `startLoad`).
-- **Clipboard copy (Ctrl+C)** of the mapped image / screenshot — different APIs per target
-  (browser Clipboard API vs. Tauri's clipboard).
-- **Self-documenting "save mapped" filenames** (encode palette/fn/scale/dip/rotation) — the
-  filename logic is core, but the save mechanism differs (browser download vs. native dialog).
+**Env-touching — the `window.__pxlpeepEnv` seam now exists** (`content/main.js`, browser default =
+download-anchor save + async Clipboard API; the Tauri shell overrides it in `content/desktop.js`).
+Output features route through it so they're written once:
+- ✅ **Clipboard copy** of the mapped image (**Ctrl+C**) / on-screen screenshot (**Ctrl+Shift+C**) —
+  browser side done via `env.copyImage` (Clipboard API, PNG). Saves moved off Ctrl+C onto the
+  Ctrl+S family; help text corrected. *Tauri backend pending* (Increment 3, if WebView2's
+  `navigator.clipboard` proves unavailable).
+- ✅ **Self-documenting "save mapped" filenames** — done via `mappedSuffix()`: readable tokens
+  encoding scaling / transfer fn / palette / dip / rotation / flips / channels, e.g.
+  `rgb_fit_logDark_cmap1_dip1.50_rot270_flipV_-GB.png` (the C++'s raw-int `_s0_f2_m5_r3`, made
+  legible). Routed through `env.save`, so the native Save-As dialog reuses it verbatim in Tauri.
+- **Reload control** — *still pending, Tauri-first by design.* Not needed in the browser today (F5
+  reloads the tab); needed in Tauri (no browser chrome), bound to **Ctrl+R / F5**; and needed in
+  the browser too **once the playlist/workspace lands** (a tab refresh would then discard
+  accumulated state, not just re-fetch one image). Core mechanic: clear `_sourceBlobPromise`,
+  re-run `startLoad`; the binding gates on `env.isDesktop`. Lands with the Tauri env in Increment 3.
 
 ### 7. Perceptually-uniform / cognitive-response palettes
 The current palettes (`buildLUT`, ported from the C++ `colormapper.h`) were designed ad hoc for

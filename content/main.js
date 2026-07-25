@@ -18,6 +18,13 @@ const CHAN_R   = 1, CHAN_G = 2, CHAN_B = 4;
 const PALETTE_NAMES = ["Grey","Inv. grey","Grey+sat","Inv. grey+sat","Color expansion","Colormap 1"];
 const FN_NAMES      = ["1:1","log brighten","log darken","parabolic brighten","parabolic darken"];
 
+// Filesystem-safe short tokens for self-documenting "save mapped" filenames (the
+// C++ used raw enum ints, "_s2_f0_m0_r0"; these say what they mean). Index by enum.
+const SCALE_TAG   = ["fit","centered","user"];
+const FN_TAG      = ["linear","logBright","logDark","parabBright","parabDark"];
+const PALETTE_TAG = ["grey","greyInv","greySat","greySatInv","colorExp","cmap1"];
+const ROT_DEG     = [0,90,180,270];
+
 const ZOOM_STEP    = Math.SQRT2;
 const MAX_ZOOM     = 16, MIN_ZOOM = -16;
 const DELTA_THRESH = 100; // wheel accumulator threshold
@@ -82,6 +89,29 @@ const S = {
 
   // cursor (viewport coords)
   cursorX: 0, cursorY: 0,
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ENVIRONMENT SEAM
+// ══════════════════════════════════════════════════════════════════════════════
+// The one place the two shells differ for output. The Tauri desktop shell sets
+// window.__pxlpeepEnv (see content/desktop.js) with a native Save-As dialog and a
+// desktop reload; the browser extension leaves it unset and inherits this default —
+// a download-anchor save and the async Clipboard API. Everything else in this file
+// is identical across both, so features get written once, here, not twice.
+const env = window.__pxlpeepEnv || {
+  isDesktop: false,
+  // Save a Blob under a suggested filename (browser: trigger a download).
+  save(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  },
+  // Copy an image Blob to the clipboard (browser: async Clipboard API, PNG only).
+  copyImage(blob) {
+    return navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+  },
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1152,10 +1182,12 @@ const HELP_LINES=[
   "","── Overlays ──",
   "I    info box   Space cursor box",
   "C    colorbar   X     rulers",
-  "","── Save ──",
+  "","── Save / copy ──",
   "Ctrl+S          save original",
-  "Ctrl+Shift+S    save mapped",
-  "Ctrl+Alt+S      save screenshot",
+  "Ctrl+Alt+S      save mapped",
+  "Ctrl+Shift+S    save screenshot",
+  "Ctrl+C          copy mapped",
+  "Ctrl+Shift+C    copy screenshot",
   "","Any key shows this help",
 ];
 
@@ -1226,9 +1258,8 @@ function onKeyDown(e) {
     case "i":case "I": S.showInfo=!S.showInfo; break;
     case " ":          S.showCursor=!S.showCursor; break;
     case "c":case "C":
-      if(ctrl&&shift){save("screenshot");break;}
-      if(ctrl&&alt)  {save("mapped");    break;}
-      if(ctrl)       {save("original");  break;}
+      if(ctrl&&shift){copyToClipboard("screenshot");break;}
+      if(ctrl)       {copyToClipboard("mapped");    break;}
       S.showColorbar=!S.showColorbar; break;
     case "x":case "X": S.showRulers=!S.showRulers; break;
 
@@ -1265,20 +1296,66 @@ function onKeyUp() {
 // SAVE
 // ══════════════════════════════════════════════════════════════════════════════
 
+// A short, self-documenting tag string describing the current mapping — scaling,
+// transfer function, palette, dip (when it applies), rotation, flips, and (for
+// color) which channels are shown. Appended to "save mapped" filenames so a saved
+// PNG says how it was produced. Mirrors the C++ getTranslationParamsString, but
+// with readable tokens instead of raw enum ints ("_user_logBright_grey" vs "_s2_f1_m0").
+function mappedSuffix() {
+  const parts=[SCALE_TAG[S.scaling], FN_TAG[S.imgFn], PALETTE_TAG[S.palette]];
+  if(S.imgFn!==ImgFn.OneToOne) parts.push("dip"+S.dipFactor.toFixed(2));
+  if(S.rotation) parts.push("rot"+ROT_DEG[S.rotation]);
+  if(S.flipH) parts.push("flipH");
+  if(S.flipV) parts.push("flipV");
+  if(S.image && S.image.numChannels>=3) {
+    const ch=(S.channels&CHAN_R?"R":"-")+(S.channels&CHAN_G?"G":"-")+(S.channels&CHAN_B?"B":"-");
+    if(ch!=="RGB") parts.push(ch);
+  }
+  return parts.join("_");
+}
+
+// Render the palette-mapped image at native pixel size (rotation applied) to a 2D
+// canvas — the pixels the shader produces, no overlay. Shared by save + copy.
+function mappedCanvas() {
+  const rot=S.rotation;
+  const w=(rot===1||rot===3)?S.image.height:S.image.width;
+  const h=(rot===1||rot===3)?S.image.width :S.image.height;
+  renderer.drawToSize(w,h);
+  const out=document.createElement("canvas");
+  out.width=w; out.height=h;
+  out.getContext("2d").drawImage(glCanvas,0,0,w,h,0,0,w,h);
+  sizeCanvases(); requestFrame();
+  return out;
+}
+
+// Composite the WebGL view + the overlay canvas at the current viewport size — a
+// literal screenshot of what's on screen (info box, rulers, ROI, help, and all).
+function screenshotCanvas() {
+  const out=document.createElement("canvas");
+  out.width=glCanvas.width; out.height=glCanvas.height;
+  const ctx=out.getContext("2d");
+  ctx.drawImage(glCanvas,0,0);
+  ctx.drawImage(ovCanvas,0,0);
+  return out;
+}
+
+// Output MIME + extension for "save mapped": keep the source format when it
+// round-trips through canvas (jpeg/webp/png), else PNG; forceJpeg wins.
+function mappedMime() {
+  const ext=(S.imageUrl.split("?")[0].split(".").pop()||"").toLowerCase();
+  const mimeMap={jpg:"image/jpeg",jpeg:"image/jpeg",webp:"image/webp",png:"image/png"};
+  const mime=S.forceJpeg?"image/jpeg":(mimeMap[ext]||"image/png");
+  const extOut=mime==="image/jpeg"?"jpg":mime==="image/webp"?"webp":"png";
+  return { mime, extOut };
+}
+
 function save(mode) {
   const name=S.imageUrl.split("/").pop()?.replace(/\.[^.]+$/,"")||"image";
 
   if(mode==="original") {
-    const basename=S.imageUrl.split("/").pop()?.replace(/\.[^.]+$/,"")||"image";
     if(!S.forceJpeg) {
       const filename=S.imageUrl.split("/").pop()||"image";
-      getSourceBlob(S.imageUrl)
-        .then(blob=>{
-          const blobUrl=URL.createObjectURL(blob);
-          const a=document.createElement("a");
-          a.href=blobUrl; a.download=filename; a.click();
-          URL.revokeObjectURL(blobUrl);
-        });
+      getSourceBlob(S.imageUrl).then(blob=>env.save(blob,filename));
     } else {
       getSourceBlob(S.imageUrl).then(blob=>{
         const blobUrl=URL.createObjectURL(blob);
@@ -1287,13 +1364,7 @@ function save(mode) {
           const c=document.createElement("canvas");
           c.width=img.naturalWidth; c.height=img.naturalHeight;
           c.getContext("2d").drawImage(img,0,0);
-          c.toBlob(b=>{
-            if(!b)return;
-            const url=URL.createObjectURL(b);
-            const a=document.createElement("a");
-            a.href=url; a.download=`${basename}.jpg`; a.click();
-            URL.revokeObjectURL(url);
-          },"image/jpeg",0.95);
+          c.toBlob(b=>{ if(b) env.save(b,`${name}.jpg`); },"image/jpeg",0.95);
           URL.revokeObjectURL(blobUrl);
         };
         img.src=blobUrl;
@@ -1304,40 +1375,29 @@ function save(mode) {
 
   if(mode==="mapped") {
     if(!S.image||!renderer) return;
-    const rot=S.rotation;
-    const outW=(rot===1||rot===3)?S.image.height:S.image.width;
-    const outH=(rot===1||rot===3)?S.image.width :S.image.height;
-    const ext=(S.imageUrl.split("?")[0].split(".").pop()||"").toLowerCase();
-    const mimeMap={jpg:"image/jpeg",jpeg:"image/jpeg",webp:"image/webp",png:"image/png"};
-    const mime=S.forceJpeg?"image/jpeg":(mimeMap[ext]||"image/png");
-    const extOut=mime==="image/jpeg"?"jpg":mime==="image/webp"?"webp":"png";
-    renderer.drawToSize(outW,outH);
-    const out=document.createElement("canvas");
-    out.width=outW; out.height=outH;
-    out.getContext("2d").drawImage(glCanvas,0,0,outW,outH,0,0,outW,outH);
-    sizeCanvases(); requestFrame();
-    out.toBlob(blob=>{
-      if(!blob)return;
-      const url=URL.createObjectURL(blob);
-      const a=document.createElement("a");
-      a.href=url; a.download=`${name}_mapped_${Date.now()}.${extOut}`; a.click();
-      URL.revokeObjectURL(url);
+    const { mime, extOut }=mappedMime();
+    mappedCanvas().toBlob(blob=>{
+      if(blob) env.save(blob,`${name}_${mappedSuffix()}.${extOut}`);
     },mime,mime==="image/jpeg"?0.95:undefined);
     return;
   }
 
-  // screenshot: composite WebGL + overlay at current viewport size
-  const out=document.createElement("canvas");
-  out.width=glCanvas.width; out.height=glCanvas.height;
-  const ctx=out.getContext("2d");
-  ctx.drawImage(glCanvas,0,0);
-  ctx.drawImage(ovCanvas,0,0);
-  out.toBlob(blob=>{
-    if(!blob)return;
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement("a");
-    a.href=url; a.download=`${name}_screenshot_${Date.now()}.png`; a.click();
-    URL.revokeObjectURL(url);
+  // screenshot
+  screenshotCanvas().toBlob(blob=>{
+    if(blob) env.save(blob,`${name}_screenshot.png`);
+  },"image/png");
+}
+
+// Copy the mapped image (Ctrl+C) or an on-screen screenshot (Ctrl+Shift+C) to the
+// clipboard as PNG. Silent on success (like the C++); logs on failure — the async
+// Clipboard API rejects if the document isn't focused or permission is denied.
+function copyToClipboard(mode) {
+  if(!S.image||!renderer) return;
+  const canvas=mode==="screenshot"?screenshotCanvas():mappedCanvas();
+  canvas.toBlob(blob=>{
+    if(!blob) return;
+    Promise.resolve(env.copyImage(blob)).catch(err=>
+      console.warn("pxlpeep: clipboard copy failed:", err));
   },"image/png");
 }
 
@@ -1834,7 +1894,7 @@ window.addEventListener("keyup",onKeyUp);
 window.addEventListener("resize",()=>{sizeCanvases();requestFrame();});
 
 // Test hooks
-window.__pxlpeep = { S, computeWBColor, computeWBGrey, recalcScale, recomputeMinMax, loadImage, zoomToFit, zoomTo1to1, pixelReadout };
+window.__pxlpeep = { S, env, computeWBColor, computeWBGrey, recalcScale, recomputeMinMax, loadImage, zoomToFit, zoomTo1to1, pixelReadout, mappedSuffix, save, copyToClipboard };
 
 // Initial frame
 requestFrame();
