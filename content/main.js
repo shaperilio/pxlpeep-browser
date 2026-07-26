@@ -42,6 +42,11 @@ const S = {
   // image
   image: null,          // { width, height, numChannels, bpp, data:Float32Array, minValue, maxValue }
   imageUrl: window.__pxlpeepImageUrl || location.href,
+  // Human-readable source, for display + save names only (never for fetching). On
+  // desktop this is the real file path (Rust injects __pxlpeepImagePath); imageUrl
+  // there is an asset:// URL with the path percent-encoded, which must never reach
+  // the UI or a filename.
+  imagePath: window.__pxlpeepImagePath || window.__pxlpeepImageUrl || location.href,
   exif: null,           // { make, iso, shutterMs, aperture, date, ev }
 
   // zoom / pan
@@ -914,13 +919,24 @@ function pixelReadout(ix, iy) {
 }
 
 // ── Info box ──────────────────────────────────────────────────────────────────
+// Human-readable basename of the current image, for the info box + save filenames.
+// Splits on / and \, drops any query/hash, percent-decodes — so on desktop, where
+// S.imagePath is the real file path, this is "rgb.png", not the asset:// URL's
+// encoded absolute path. withExt keeps the extension (info box, original save);
+// without, it's the stem the mapped/screenshot names build on.
+function imageBaseName(withExt) {
+  let seg=S.imagePath.split(/[?#]/)[0].split(/[/\\]/).pop()||"image";
+  try { seg=decodeURIComponent(seg); } catch {}
+  seg=seg||"image";
+  return withExt ? seg : (seg.replace(/\.[^.]+$/,"")||"image");
+}
+
 function drawInfoBox(ctx, ow, oh) {
   if (!S.image) return;
   const img=S.image, lineH=lh(ctx);
   const lines=[];
 
-  const name=S.imageUrl.split("/").pop()||S.imageUrl;
-  lines.push(name);
+  lines.push(imageBaseName(true));
 
   const rot=["","  90°","  180°","  270°"][S.rotation];
   const fl=S.flipH&&S.flipV?" H+V flip":S.flipH?" H flip":S.flipV?" V flip":"";
@@ -1359,11 +1375,11 @@ function mappedMime() {
 }
 
 function save(mode) {
-  const name=S.imageUrl.split("/").pop()?.replace(/\.[^.]+$/,"")||"image";
+  const name=imageBaseName(false);
 
   if(mode==="original") {
     if(!S.forceJpeg) {
-      const filename=S.imageUrl.split("/").pop()||"image";
+      const filename=imageBaseName(true);
       getSourceBlob(S.imageUrl).then(blob=>env.save(blob,filename));
     } else {
       getSourceBlob(S.imageUrl).then(blob=>{
@@ -1808,7 +1824,7 @@ function showLoadError(err){
   msg.textContent=errorMessage(err);
   msg.style.whiteSpace="pre-line";
   const url=document.createElement("div");
-  url.textContent=S.imageUrl;
+  url.textContent=S.imagePath;
   Object.assign(url.style,{marginTop:"10px",color:"#888",fontSize:"11px",wordBreak:"break-all"});
   const retry=document.createElement("button");
   retry.textContent="Retry";
