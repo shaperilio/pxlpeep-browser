@@ -152,8 +152,9 @@ individual keys in `content/desktop.js` via `Object.assign` (not `||`), so it ca
 today just `isDesktop:true` — and inherit the rest. Output features route through it, written once:
 - ✅ **Clipboard copy** of the mapped image (**Ctrl+C**) / on-screen screenshot (**Ctrl+Shift+C**) —
   browser side done via `env.copyImage` (Clipboard API, PNG). Saves moved off Ctrl+C onto the
-  Ctrl+S family; help text corrected. *Tauri backend pending* (Increment 3, if WebView2's
-  `navigator.clipboard` proves unavailable).
+  Ctrl+S family; help text corrected. **Verified working in a real WebView2 build (CDP):** the async
+  Clipboard API *write* succeeds silently with the keypress gesture — no native backend needed.
+  (Clipboard *read* prompts for permission, but our copy path only writes, so that's irrelevant.)
 - ✅ **Self-documenting "save mapped" filenames** — done via `mappedSuffix()`: readable tokens
   encoding scaling / transfer fn / palette / dip / rotation / flips / channels, e.g.
   `rgb_fit_logDark_cmap1_dip1.50_rot270_flipV_-GB.png` (the C++'s raw-int `_s0_f2_m5_r3`, made
@@ -164,10 +165,16 @@ today just `isDesktop:true` — and inherit the rest. Output features route thro
   `isDesktop:true`. Browser-verified with `isDesktop` mocked: direct reload re-fetches; browser-mode
   F5/Ctrl+R don't hijack; desktop-mode F5 and Ctrl+R each re-fetch. Becomes useful in the browser
   too once the playlist/workspace lands (a bare tab refresh would then discard accumulated state).
-  **Follow-up (needs a live desktop window, so left for an interactive session):** confirm WebView2
-  doesn't eat F5/Ctrl+R before the page, and whether the inherited browser save/`navigator.clipboard`
-  actually work inside WebView2 — if not, add a native-dialog / native-clipboard override in
-  `desktop.js` (a per-method `__pxlpeepEnv` key; no `main.js` change needed).
+  **Verified in a real `tauri build --debug` window via CDP:** physical F5 and Ctrl+R both reach the
+  page handler and fire `reloadImage` (one asset re-fetch, in-page sentinel survives → no full-page
+  reload); WebView2 does not eat them.
+- ⚠️ **Desktop save UX — a native Save-As dialog is still wanted.** Verified via CDP: the browser
+  download anchor *does* fire a real download in WebView2 (`downloadWillBegin` → `completed`), so
+  saving works — but via WebView2's download flyout to the Downloads folder, not a Save-As dialog.
+  The filename was also coming out as the percent-encoded asset path; **fixed** (`79c218a`) by
+  deriving names from the real path (`S.imagePath` / `imageBaseName`), so mapped now writes
+  `rgb_user_linear_grey.png`. Polish: a per-method `env.save` override in `desktop.js` calling the
+  Tauri dialog + fs plugins for a real Save-As (pick location/name, drop the download flyout).
 
 ### 7. Perceptually-uniform / cognitive-response palettes
 The current palettes (`buildLUT`, ported from the C++ `colormapper.h`) were designed ad hoc for
