@@ -10,7 +10,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "stamp": "node scripts/stamp-version.js",
-    "version": "node scripts/stamp-version.js && git add manifest.json src-tauri/tauri.conf.json src-tauri/Cargo.toml content/main.js",
+    "version": "node scripts/stamp-version.js && git add package.json package-lock.json manifest.json src-tauri/tauri.conf.json src-tauri/Cargo.toml content/main.js",
     "desktop": "tauri dev",
     "desktop:build": "tauri build",
     "tauri": "tauri"

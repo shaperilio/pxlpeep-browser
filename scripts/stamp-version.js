@@ -21,7 +21,8 @@ const root = path.resolve(__dirname, "..");
 const read = (f) => fs.readFileSync(path.join(root, f), "utf8");
 const write = (f, s) => fs.writeFileSync(path.join(root, f), s);
 
-const version = JSON.parse(read("package.json")).version;
+const pkg = JSON.parse(read("package.json"));
+const version = pkg.version;
 
 // Validate against the strictest consumer of each field (fail loud, fail here).
 const bad = (msg) => {
@@ -49,6 +50,16 @@ const targets = [
   ["src-tauri/tauri.conf.json", /("version"\s*:\s*")[^"]*(")/],
   ["src-tauri/Cargo.toml", /(\[package\][\s\S]*?\nversion = ")[^"]*(")/],
   ["content/main.js", /(const PXLPEEP_VERSION = ")[^"]*(")/],
+  // package-lock.json carries our own version twice (root + the "" self-package). Keying
+  // the /g replace on our package name hits exactly those two and never a dependency's
+  // "version". npm's own `npm version` syncs these too; this covers hand-edit + stamp.
+  [
+    "package-lock.json",
+    new RegExp(
+      `("name": ${JSON.stringify(pkg.name)},\\s*"version": ")[^"]*(")`,
+      "g",
+    ),
+  ],
 ];
 
 let changed = 0;

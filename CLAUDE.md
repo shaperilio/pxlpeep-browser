@@ -137,11 +137,17 @@ root, and delete the harness after (but *do* commit the resulting `package.json`
   consumer, so the shape isn't free: Windows MSI (Tauri's bundle) caps major/minor at 255 (→ 2-digit
   year, never 4), Chrome's manifest bans leading zeros and caps fields at 65535, npm wants exactly
   three integers; monotonic dates also satisfy the store/MSI "newer must compare greater" update
-  rule. **`package.json` is the single source of truth; `npm run stamp` propagates it** to
+  rule. **`package.json` is the single source of truth.** To bump, run **one command**:
+  `npm version <v> --no-git-tag-version` (e.g. `npm version 26.7.1 --no-git-tag-version`) — it
+  bumps package.json, runs `scripts/stamp-version.js` to propagate the value to `package-lock.json`,
   `manifest.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and the `PXLPEEP_VERSION`
-  constant in `content/main.js` (that constant exists because the main-world injection has no
-  `chrome.runtime` to read the manifest). `npm version <v>` runs the stamp automatically.
-  `scripts/stamp-version.js` validates the field limits and fails loudly on a bad bump.
+  constant in `content/main.js`, and git-stages them all — but writes **no tag or commit**, so the
+  bump rides in your next normal commit. (That `main.js` constant exists because the main-world
+  injection has no `chrome.runtime` to read the manifest.) `npm run stamp` is the underlying
+  propagator for a hand-edited version. The stamp validates every field limit and fails loudly on a
+  bad bump (a 4-digit year is rejected with the MSI reason). **Bumps are release-gated, not
+  per-change** — leave the version alone until there's an actual release to cut (see
+  `ROADMAP.md` → Polish / store prep → publish workflow).
 - Shell: this is a Windows repo. The Bash tool uses POSIX sh; the PowerShell tool uses
   PS syntax — don't mix (`@'...'@` here-strings are PowerShell-only).
 - Git: `origin` is `github-shaperilio:shaperilio/pxlpeep-browser`.

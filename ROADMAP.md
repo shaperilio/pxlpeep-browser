@@ -277,6 +277,15 @@ extensions). `content/main.js` is reused **verbatim** inside the Tauri shell —
   clean fix is to emit per-browser packages that each drop the other browser's key — which
   we need for the two stores anyway (Chrome Web Store vs AMO), so fold it into store
   packaging rather than bolting on a build step now.
+- **Publish workflow (ideally automated) + release-time version bump.** Tie packaging to a single
+  release action: compute the next CalVer from the date (`YY.M.micro`, micro = the next release that
+  month), run `npm version <v> --no-git-tag-version` to bump + stamp every file (see CLAUDE.md →
+  Conventions → Versioning), build the per-browser extension packages and the Tauri desktop bundles,
+  and push to the Chrome Web Store / AMO / a desktop release. A helper like `scripts/next-version.js`
+  (derive today's `YY.M.micro` from the current version) would make the bump fully hands-off.
+  **Until this exists the version stays pinned** (currently `26.7.0`): no hand-bumping per change
+  while the project is single-user — a version change should mean "a release went out", not "a
+  commit landed". Depends on the per-browser-manifest split above.
 - Write a privacy policy (required by stores given broad host permissions; states no data
   collected, only fetches the image you opened).
 - Chrome Web Store & Firefox AMO: both now MV3. Chrome is a one-time $5 registration; AMO
