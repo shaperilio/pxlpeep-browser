@@ -80,6 +80,7 @@ const S = {
   showInfo: true,
   showCursor: false,
   showRulers: true,
+  showGrid: false,
   showColorbar: true,
   showHelp: false,
 
@@ -866,6 +867,7 @@ function drawAll(ctx, ow, oh) {
   ctx.save();
   ctx.scale(dpr,dpr);
   ctx.font = FONT;
+  if (S.showGrid)     drawGrid(ctx, lw, lh_);
   if (S.showRulers)   drawRulers(ctx, lw, lh_);
   if (S.showColorbar) drawColorbar(ctx, lw, lh_);
   drawROI(ctx);
@@ -936,7 +938,7 @@ function drawInfoBox(ctx, ow, oh) {
   const img=S.image, lineH=lh(ctx);
   const lines=[];
 
-  lines.push(imageBaseName(true));
+  lines.push(S.imagePath);
 
   const rot=["","  90°","  180°","  270°"][S.rotation];
   const fl=S.flipH&&S.flipV?" H+V flip":S.flipH?" H flip":S.flipV?" V flip":"";
@@ -977,7 +979,7 @@ function drawInfoBox(ctx, ow, oh) {
 // since it showed only coordinates (X/Y/R/θ), for which a corner is a valid position.
 // We add a pixel-value line, and a value at the corner where 4 pixels meet is
 // meaningless — so we snap to whole pixels (the pixel center) instead.
-const CURSOR_MARKER_ZOOM = 32; // zoomFactor at/above which we snap + mark (C++ markerZoomLevel)
+const CURSOR_MARKER_ZOOM = 16; // zoomFactor at/above which we snap + mark (C++ markerZoomLevel)
 
 function drawCursorBox(ctx, ow, oh) {
   if (!S.image) return;
@@ -998,7 +1000,21 @@ function drawCursorBox(ctx, ow, oh) {
     ctx.fillStyle="#fff"; ctx.fillRect(refX-half+third,    refY-half+third,    size-2*third,  size-2*third);
     ctx.fillStyle="#000"; ctx.fillRect(refX-half+2*third,  refY-half+2*third,  size-4*third,  size-4*third);
   } else {
-    refX=S.cursorX; refY=S.cursorY;
+    // Below the snap zoom, mark the exact cursor position with a black+white "+" (same
+    // extent as the square marker) and anchor the info box to it — so a screenshot shows
+    // which point the readout refers to instead of a box dangling in space.
+    // +0.5 so the odd-width strokes land on pixel centres and stay crisp (black
+    // flanks + white core), the way the ruler/grid lines do.
+    refX=Math.round(S.cursorX)+0.5; refY=Math.round(S.cursorY)+0.5;
+    const half=9;
+    const plus=(style,w)=>{
+      ctx.strokeStyle=style; ctx.lineWidth=w;
+      ctx.beginPath();
+      ctx.moveTo(refX-half,refY); ctx.lineTo(refX+half,refY);
+      ctx.moveTo(refX,refY-half); ctx.lineTo(refX,refY+half);
+      ctx.stroke();
+    };
+    plus("#000",3); plus("#fff",1);
   }
 
   const rd=pixelReadout(ix,iy);
@@ -1144,6 +1160,33 @@ function drawColorbar(ctx, ow, oh) {
 }
 
 // ── ROI ───────────────────────────────────────────────────────────────────────
+// ── Pixel grid ────────────────────────────────────────────────────────────────
+// Thin lines on pixel boundaries so a flat, constant-colour region still shows its
+// scale when zoomed in. Black-flanked-white like the rulers, so it reads over any
+// pixel value; hidden below GRID_MIN_ZOOM, where the lines would collapse into mush.
+const GRID_MIN_ZOOM = 12;
+function drawGrid(ctx, ow, oh) {
+  if (!S.image || S.zoomFactor < GRID_MIN_ZOOM) return;
+  const dispW=(S.rotation===1||S.rotation===3)?S.image.height:S.image.width;
+  const dispH=(S.rotation===1||S.rotation===3)?S.image.width :S.image.height;
+  const xOf=c=>c*S.zoomFactor+S.panX, yOf=r=>r*S.zoomFactor+S.panY;
+  // Draw only within the image's visible extent — no lines out in the letterbox.
+  const yTop=Math.max(0,yOf(0)),     yBot=Math.min(oh,yOf(dispH));
+  const xLeft=Math.max(0,xOf(0)),    xRight=Math.min(ow,xOf(dispW));
+  if (yBot<=yTop || xRight<=xLeft) return;
+  const cStart=Math.max(0,   Math.ceil ((0 -S.panX)/S.zoomFactor));
+  const cEnd  =Math.min(dispW,Math.floor((ow-S.panX)/S.zoomFactor));
+  const rStart=Math.max(0,   Math.ceil ((0 -S.panY)/S.zoomFactor));
+  const rEnd  =Math.min(dispH,Math.floor((oh-S.panY)/S.zoomFactor));
+  const pass=(style,w)=>{
+    ctx.strokeStyle=style; ctx.lineWidth=w; ctx.beginPath();
+    for(let c=cStart;c<=cEnd;c++){ const x=Math.round(xOf(c))+0.5; ctx.moveTo(x,yTop); ctx.lineTo(x,yBot); }
+    for(let r=rStart;r<=rEnd;r++){ const y=Math.round(yOf(r))+0.5; ctx.moveTo(xLeft,y); ctx.lineTo(xRight,y); }
+    ctx.stroke();
+  };
+  pass("#000",3); pass("#fff",1);
+}
+
 function drawROI(ctx) {
   if(!S.roi.valid) return;
   const [sx1,sy1]=imgToView(S.roi.x1,S.roi.y1);
@@ -1204,6 +1247,7 @@ const HELP_LINES=[
   "","── Overlays ──",
   "I    info box   Space cursor box",
   "C    colorbar   X     rulers",
+  "#    pixel grid",
   "","── Save / copy ──",
   "Ctrl+S          save original",
   "Ctrl+Alt+S      save mapped",
@@ -1287,6 +1331,7 @@ function onKeyDown(e) {
       if(ctrl)       {copyToClipboard("mapped");    break;}
       S.showColorbar=!S.showColorbar; break;
     case "x":case "X": S.showRulers=!S.showRulers; break;
+    case "#":          S.showGrid=!S.showGrid; break;
 
     case "y":case "Y": S.yFlip=!S.yFlip; break;
     case "0":          S.zeroIdx=!S.zeroIdx; break;
@@ -1644,7 +1689,8 @@ function buildToolbar() {
   const togRul =btn("rulers","Toggle rulers",()=>{S.showRulers=!S.showRulers;requestFrame();refresh();});
   const togCbar=btn("colorbar","Toggle colorbar",()=>{S.showColorbar=!S.showColorbar;requestFrame();refresh();});
   const togCur =btn("cursor","Toggle cursor box",()=>{S.showCursor=!S.showCursor;requestFrame();refresh();});
-  tb.appendChild(row(lbl("show"),togInfo,togRul,togCbar,togCur));
+  const togGrid=btn("grid","Toggle pixel grid",()=>{S.showGrid=!S.showGrid;requestFrame();refresh();});
+  tb.appendChild(row(lbl("show"),togInfo,togRul,togCbar,togCur,togGrid));
 
   // ── EXIF ──
   const exifDiv=document.createElement("div");
@@ -1693,6 +1739,7 @@ function buildToolbar() {
     flipH2._setActive(S.flipH); flipV2._setActive(S.flipV);
     togInfo._setActive(S.showInfo); togRul._setActive(S.showRulers);
     togCbar._setActive(S.showColorbar); togCur._setActive(S.showCursor);
+    togGrid._setActive(S.showGrid);
     jpegCb.checked=S.forceJpeg;
     if(S.exif){
       const e=S.exif; let html="";
@@ -1900,10 +1947,14 @@ ovCanvas.addEventListener("pointermove",e=>{
   } else if(roiDrag) {
     const img=S.image;
     const [ix,iy]=viewToImg(e.clientX,e.clientY);
-    const cx=Math.max(0,Math.min(img?.width??1e9, ix));
-    const cy=Math.max(0,Math.min(img?.height??1e9,iy));
-    const dx=Math.abs(cx-roiDrag.x), dy=Math.abs(cy-roiDrag.y);
-    S.roi={x1:roiDrag.x,y1:roiDrag.y,x2:cx,y2:cy,valid:dx>=1&&dy>=1};
+    // Snap both corners to pixel CENTRES (whole pixels only): a fractional ROI is
+    // meaningless to measure and ambiguous for the WB average. dx/dy then come out as
+    // whole pixels, matching the pixel count WB floors the span to.
+    const snap=(v,max)=>Math.max(0.5,Math.min(max-0.5,Math.floor(v)+0.5));
+    const x1=snap(roiDrag.x,img?.width ??1e9), y1=snap(roiDrag.y,img?.height??1e9);
+    const x2=snap(ix,       img?.width ??1e9), y2=snap(iy,       img?.height??1e9);
+    const dx=Math.abs(x2-x1), dy=Math.abs(y2-y1);
+    S.roi={x1,y1,x2,y2,valid:dx>=1&&dy>=1};
   }
   requestFrame();
 });
