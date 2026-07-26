@@ -7,13 +7,17 @@ follow-ups already have a permanent home in ROADMAP #6.)
 ## Get it running
 
 - [ ] `npm run desktop` compiles + launches. First Rust build is slow (minutes); later runs are fast.
-- [ ] **Loading an image.** The app only takes an image as `argv[1]` — there is no open dialog or
-      drag-and-drop yet (both are ROADMAP items). Most reliable path: after the first compile,
-      launch the debug binary directly with a path:
-      `.\src-tauri\target\debug\pxlpeep.exe "<absolute-path>\test_images\rgb.png"`
-      (use an absolute path; relative may not resolve through the asset protocol). Passing through
-      `tauri dev` is finicky — `npm run desktop -- -- "<path>"` — and if the image doesn't appear,
-      that's the first thing to debug.
+- [ ] **Loading an image.** The app only takes an image as `argv[1]` — no open dialog or drag-drop
+      yet (both ROADMAP items). ⚠️ The exe `npm run desktop` (`tauri dev`) leaves at
+      `target\debug\pxlpeep.exe` is **not standalone** — the debug binary loads the frontend from
+      Tauri's dev server (`127.0.0.1:1430`), so running it on its own gives a WebView2
+      "can't reach 127.0.0.1" error. To get a self-contained exe, build one with the frontend
+      embedded: `npx tauri build --debug --no-bundle` (fast, no installer, devtools on), then run it
+      with an **absolute** path:
+      `.\src-tauri\target\debug\pxlpeep.exe "C:\full\path\to\test_images\rgb.png"`
+      (relative paths may not resolve through the asset protocol). Rebuild after any frontend edit —
+      a build embeds a snapshot; it doesn't hot-serve like `tauri dev`. (Loading `.\test_images` with
+      a `.tif` still won't decode; use PNG/JPEG/BMP.)
 - [ ] **Devtools** (right-click → Inspect; on in debug builds) — you'll want the console to poke
       `window.__pxlpeep`. If an image won't load, check `window.__pxlpeepImagePath` there.
 - [ ] Use **PNG / JPEG / BMP** fixtures (`rgb.png`, `vgradF.jpeg`, `vgrad.bmp`, `trans.png`,
