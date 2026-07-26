@@ -266,6 +266,10 @@ extensions). `content/main.js` is reused **verbatim** inside the Tauri shell —
   open a **new viewer in the existing instance**, not a second process. Drag an image onto a viewer
   window → open it there; drag onto the main window → open a new viewer. (Tauri single-instance
   plugin + the multi-window/sync engine from Feature #4.)
+- **Frameless viewer windows** (once the main window exists). Drop the OS title bar on viewer
+  windows (`decorations: false`) so the pixels get the whole frame. Since that removes the drag
+  handle, restore the C++ gesture: **right-button drag moves the window** (mousedown button 2 →
+  Tauri `startDragging`, or manual reposition). The main window keeps normal chrome for now.
 - **Loupe icon** — replace Tauri's default icons with the pxlpeep loupe (`tauri icon` from a
   high-res source; the C++ `loupe.icns` / `loupe.ico` / `loupe.iconset` are the source art).
 
