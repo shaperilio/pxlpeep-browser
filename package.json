@@ -1,6 +1,6 @@
 {
   "name": "pxlpeep-browser",
-  "version": "1.0.0",
+  "version": "26.7.0",
   "private": true,
   "description": "Dev tooling only. The extension itself has zero dependencies and no build step; nothing here is shipped.",
   "scripts": {
@@ -9,6 +9,8 @@
     "check:manifest": "node -e \"JSON.parse(require('fs').readFileSync('manifest.json','utf8'))\"",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "stamp": "node scripts/stamp-version.js",
+    "version": "node scripts/stamp-version.js && git add manifest.json src-tauri/tauri.conf.json src-tauri/Cargo.toml content/main.js",
     "desktop": "tauri dev",
     "desktop:build": "tauri build",
     "tauri": "tauri"

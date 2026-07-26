@@ -136,14 +136,15 @@ implement them once through the abstraction rather than twice and reconciling).
   done (`51d2eae`); `recomputeMinMax()` folds the WB gains in and re-runs on every WB apply.
 - ✅ **Fit min/max over per-channel values, not luminance** — done (`51d2eae`); a single
   saturated channel now drives Fit scaling, matching the desktop.
-- ◐ **Show EXIF Software/firmware field** — firmware display **done** (`51d2eae`): the standard
-  EXIF `Software` tag (0x0131), already parsed into `S.exif.firmware`, now shown in the info box
-  and toolbar (and the toolbar's make/date/firmware are now HTML-escaped, closing an injection
-  hole). *Remaining:* the **app version in the help header** — deferred until the repo settles on
-  one canonical version (`package.json` 1.0.0 vs `tauri.conf.json` 0.1.0 vs `manifest.json`), and
-  a version string reachable from all three run contexts (main-world inject has no `chrome.runtime`).
-  (Distinct from the C++'s *camera-specific* MakerNote sensor/DSP/battery temperatures — single-
-  vendor, deliberately not ported.)
+- ✅ **Show EXIF Software/firmware field + app version in help header** — both done. Firmware
+  display (`51d2eae`): the standard EXIF `Software` tag (0x0131), parsed into `S.exif.firmware`,
+  shown in the info box and toolbar (make/date/firmware now HTML-escaped, closing an injection
+  hole). App version: the help header now reads `pxlpeep <version>` from the `PXLPEEP_VERSION`
+  constant. This unblocked a versioning decision — the repo is now **CalVer `YY.M.micro`** (started
+  `26.7.0`), single source of truth in `package.json`, propagated by `npm run stamp` to the manifest
+  / tauri.conf / Cargo.toml / the `main.js` constant (see CLAUDE.md → Conventions). Fixed the prior
+  `1.0.0` vs `0.1.0` drift. (Distinct from the C++'s *camera-specific* MakerNote sensor/DSP/battery
+  temperatures — single-vendor, deliberately not ported.)
 
 **Env-touching — the `window.__pxlpeepEnv` seam now exists.** Browser defaults live in
 `content/main.js` (download-anchor save + async Clipboard API); the Tauri shell overrides

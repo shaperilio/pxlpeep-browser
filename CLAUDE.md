@@ -131,6 +131,17 @@ root, and delete the harness after (but *do* commit the resulting `package.json`
 - Prettier: 100 col, 2-space, double quotes, es5 trailing commas (`prettier.config.json`);
   `content/main.js` is exempt on purpose (see Testing / verification).
 - Vanilla JS only, no framework, no build. Styling via `Object.assign(el.style, {...})`.
+- **Versioning: CalVer `YY.M.micro`** (e.g. `26.7.0`; micro resets per month, string increases
+  monotonically). Semver's job — signalling API-compat breaks — is dead weight here (no library
+  consumers), while a date answers "how old is this build". Every field is bounded by its strictest
+  consumer, so the shape isn't free: Windows MSI (Tauri's bundle) caps major/minor at 255 (→ 2-digit
+  year, never 4), Chrome's manifest bans leading zeros and caps fields at 65535, npm wants exactly
+  three integers; monotonic dates also satisfy the store/MSI "newer must compare greater" update
+  rule. **`package.json` is the single source of truth; `npm run stamp` propagates it** to
+  `manifest.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and the `PXLPEEP_VERSION`
+  constant in `content/main.js` (that constant exists because the main-world injection has no
+  `chrome.runtime` to read the manifest). `npm version <v>` runs the stamp automatically.
+  `scripts/stamp-version.js` validates the field limits and fails loudly on a bad bump.
 - Shell: this is a Windows repo. The Bash tool uses POSIX sh; the PowerShell tool uses
   PS syntax — don't mix (`@'...'@` here-strings are PowerShell-only).
 - Git: `origin` is `github-shaperilio:shaperilio/pxlpeep-browser`.

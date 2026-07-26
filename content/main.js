@@ -5,6 +5,11 @@
 if (window.__pxlpeepActive) { throw new Error("pxlpeep: already active"); }
 window.__pxlpeepActive = true;
 
+// App version — CalVer YY.M.micro (e.g. 26.7.0; see CLAUDE.md). This is the runtime
+// copy: the main-world injection has no chrome.runtime to read the manifest, so the
+// version is baked in here and kept in lockstep with package.json by `npm run stamp`.
+const PXLPEEP_VERSION = "26.7.0";
+
 // ══════════════════════════════════════════════════════════════════════════════
 // CONSTANTS (ported from enums in ImageWindow.h / colormapper.h)
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1152,7 +1157,7 @@ function drawROI(ctx) {
 
 // ── Help ──────────────────────────────────────────────────────────────────────
 const HELP_LINES=[
-  "pxlpeep","",
+  "pxlpeep "+PXLPEEP_VERSION,"",
   "── Mouse ──",
   "Left drag              pan",
   "Shift+Left drag     select ROI",
@@ -1908,7 +1913,7 @@ window.addEventListener("keyup",onKeyUp);
 window.addEventListener("resize",()=>{sizeCanvases();requestFrame();});
 
 // Test hooks
-window.__pxlpeep = { S, env, computeWBColor, computeWBGrey, recalcScale, recomputeMinMax, loadImage, zoomToFit, zoomTo1to1, pixelReadout, mappedSuffix, save, copyToClipboard, reloadImage };
+window.__pxlpeep = { S, env, PXLPEEP_VERSION, computeWBColor, computeWBGrey, recalcScale, recomputeMinMax, loadImage, zoomToFit, zoomTo1to1, pixelReadout, mappedSuffix, save, copyToClipboard, reloadImage };
 
 // Initial frame
 requestFrame();

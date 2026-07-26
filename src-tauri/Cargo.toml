@@ -1,6 +1,6 @@
 [package]
 name = "pxlpeep"
-version = "0.1.0"
+version = "26.7.0"
 description = "pxlpeep desktop shell — hosts the shared viewer (content/main.js) in a native window"
 authors = ["shaperilio"]
 repository = "https://github.com/shaperilio/pxlpeep-browser"

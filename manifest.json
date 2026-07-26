@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "pxlpeep",
-  "version": "1.0.0",
+  "version": "26.7.0",
   "description": "Power-user image inspector: palette mapping, white balance, rulers, ROI, EXIF, channel selection.",
   "icons": {
     "16":  "loupe.iconset/icon_16x16.png",
