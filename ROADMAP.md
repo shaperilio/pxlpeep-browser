@@ -219,7 +219,11 @@ Reconciling against the C++ help menu surfaced these, not ported and not previou
 navigated to* (takeover / context menu), so it has no surface for pasting or opening arbitrary new
 content — and it can't touch the filesystem anyway.
 - **Paste image / URL from clipboard (Ctrl+V)** — paste a bitmap, or text that is a URL (download +
-  inspect), via the Tauri clipboard. The URL half overlaps the existing viewer entry point.
+  inspect), via the Tauri clipboard. The URL half overlaps the existing viewer entry point. **Note:
+  clipboard *read* pops a WebView2 "allow/block" permission prompt** (confirmed in the desktop CDP
+  test — *write* is silent, but `navigator.clipboard.read()` prompts). So implement paste through the
+  **Tauri clipboard-manager plugin** (native read, no web permission prompt), not the web Clipboard
+  API — which is the reason this whole item is Tauri-only anyway.
 - **Clipboard monitor / auto-open on copy (Ctrl+Alt+V)** — background-poll the clipboard and open any
   newly copied image/URL ("copy an image anywhere, it appears in pxlpeep"). Desktop-only (continuous
   polling isn't appropriate for a content script).
