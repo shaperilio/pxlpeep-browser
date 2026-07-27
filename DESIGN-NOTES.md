@@ -88,8 +88,11 @@ shells.
 tracked by a per-group sequence stamp; repeated Esc walks back tool-by-tool. **Shift+key** is the
 fine granularity (pop one item from a given tool); Esc is the broom — so you can wipe a botched set
 of measurements with one keystroke without nuking your white balance. When Esc reaches the WB group
-it clears the *box* only; the correction is reverted solely by Shift+W. Rotating the image also
-clears the spatial overlays (they live in display space) but keeps the WB correction.
+it clears the *box* only; the correction is reverted solely by Shift+W. Rotating **or flipping** the
+image clears the spatial overlays (they live in display space, and imgToView applies neither
+rotation nor flip, so a kept overlay would detach from the pixels it describes) but keeps the WB
+correction. A future refinement could *transform* the overlays through the rotation/flip instead of
+clearing them.
 
 ## Cursor info box + position markers
 

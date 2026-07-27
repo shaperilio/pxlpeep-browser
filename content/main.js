@@ -107,6 +107,7 @@ const S = {
   // unit calibration
   unitPerPix: 1,
   unitName: "units",
+  calibrated: false,   // separate flag, not unitPerPix===1 (a real 1-unit/px calibration is valid)
 
   // cursor (viewport coords)
   cursorX: 0, cursorY: 0,
@@ -570,9 +571,10 @@ class Renderer {
     gl.uniform1f(this.u.uOffset, S.offset);
     gl.uniform1f(this.u.uSMin,   S.scaleMin);
     gl.uniform1f(this.u.uSMax,   S.scaleMax);
-    const _wbc=S.wbPeek?[1,1,1]:S.wbColor, _wbg=S.wbPeek?[1,1,1,1]:S.wbGrey;
-    gl.uniform3f(this.u.uWBC, _wbc[0], _wbc[1], _wbc[2]);
-    gl.uniform4f(this.u.uWBG, _wbg[0], _wbg[1], _wbg[2], _wbg[3]);
+    // Mapped export re-renders the CORRECTED image at native size — the transient Alt+W
+    // peek must not leak into a saved/copied PNG, so use the real gains here (unlike draw()).
+    gl.uniform3f(this.u.uWBC, S.wbColor[0], S.wbColor[1], S.wbColor[2]);
+    gl.uniform4f(this.u.uWBG, S.wbGrey[0], S.wbGrey[1], S.wbGrey[2], S.wbGrey[3]);
     gl.uniform2f(this.u.uSz, S.image.width, S.image.height);
     gl.uniform2f(this.u.uVP, w, h);
     gl.uniform2f(this.u.uPan, 0, 0);
@@ -1212,7 +1214,7 @@ function drawGrid(ctx, ow, oh) {
 
 // Unit annotation for a pixel value: "" when uncalibrated, else " (X.XXX unit)".
 function unitSuffix(px){
-  return S.unitPerPix===1 ? "" : ` (${(px*S.unitPerPix).toFixed(3)} ${S.unitName})`;
+  return !S.calibrated ? "" : ` (${(px*S.unitPerPix).toFixed(3)} ${S.unitName})`;
 }
 
 // A right-aligned black readout box anchored near (ax,ay), clamped on-canvas. Shared by
@@ -1344,7 +1346,7 @@ function openCalibration(){
       const numStr=sp<0?raw:raw.slice(0,sp);
       const unit=sp<0?"units":(raw.slice(sp+1).trim()||"units");
       const val=parseFloat(numStr);
-      if(isFinite(val)&&val>0){ S.unitPerPix=val/Lpx; S.unitName=unit; }
+      if(isFinite(val)&&val>0){ S.unitPerPix=val/Lpx; S.unitName=unit; S.calibrated=true; }
       close();
     } else if(ev.key==="Escape"){ close(); }
   });
@@ -1464,8 +1466,8 @@ function onKeyDown(e) {
     case "a":case "A":
       S.rotation=((S.rotation+(shift?-1:1))%4+4)%4;
       S.wbBox=null; S.measures=[]; S.latched=[]; break;   // spatial overlays don't survive rotation
-    case "l":case "L": S.flipH=!S.flipH; break;
-    case "t":case "T": S.flipV=!S.flipV; break;
+    case "l":case "L": S.flipH=!S.flipH; S.wbBox=null; S.measures=[]; S.latched=[]; break;
+    case "t":case "T": S.flipV=!S.flipV; S.wbBox=null; S.measures=[]; S.latched=[]; break;
 
     case "i":case "I": S.showInfo=!S.showInfo; break;
     case " ":          S.showCursor=!S.showCursor; break;
@@ -1483,7 +1485,7 @@ function onKeyDown(e) {
       if(ctrl){handled=false;break;}
       if(alt){ if(!S.wbPeek) S.wbPeek=true; break; }   // hold Alt+W = peek at pre-WB
       if(shift){ revertWB(); break; }                   // permanent revert (keeps the box)
-      if(!wHeld){ wHeld=true; wDragged=false; }          // arm W+drag; a bare tap clears the box
+      if(!wHeld){ wHeld=true; if(!wbDrag) wDragged=false; } // arm W+drag; tap clears box (keep wDragged if a drag is live)
       break;
     case "m":case "M":
       if(ctrl){handled=false;break;}
@@ -1829,8 +1831,8 @@ function buildToolbar() {
     btn("↺ CCW","Rotate CCW",()=>{S.rotation=((S.rotation-1)%4+4)%4;S.wbBox=null;S.measures=[];S.latched=[];requestFrame();refresh();}),
     btn("↻ CW", "Rotate CW", ()=>{S.rotation=(S.rotation+1)%4;          S.wbBox=null;S.measures=[];S.latched=[];requestFrame();refresh();}),
   ));
-  const flipH2=btn("⇄H","Flip horizontal",()=>{S.flipH=!S.flipH;requestFrame();refresh();});
-  const flipV2=btn("⇅V","Flip vertical",  ()=>{S.flipV=!S.flipV;requestFrame();refresh();});
+  const flipH2=btn("⇄H","Flip horizontal",()=>{S.flipH=!S.flipH;S.wbBox=null;S.measures=[];S.latched=[];requestFrame();refresh();});
+  const flipV2=btn("⇅V","Flip vertical",  ()=>{S.flipV=!S.flipV;S.wbBox=null;S.measures=[];S.latched=[];requestFrame();refresh();});
   tb.appendChild(row(lbl("flip"),flipH2,flipV2));
 
   // ── WB (hold W + drag to apply, stacked; Alt+W peeks; Shift+W / this resets) ──
