@@ -1164,7 +1164,7 @@ function drawColorbar(ctx, ow, oh) {
 // Thin lines on pixel boundaries so a flat, constant-colour region still shows its
 // scale when zoomed in. Black-flanked-white like the rulers, so it reads over any
 // pixel value; hidden below GRID_MIN_ZOOM, where the lines would collapse into mush.
-const GRID_MIN_ZOOM = 12;
+const GRID_MIN_ZOOM = 64; // 64× is the first zoom where the rulers show one tick per pixel
 function drawGrid(ctx, ow, oh) {
   if (!S.image || S.zoomFactor < GRID_MIN_ZOOM) return;
   const dispW=(S.rotation===1||S.rotation===3)?S.image.height:S.image.width;
@@ -1247,7 +1247,7 @@ const HELP_LINES=[
   "","── Overlays ──",
   "I    info box   Space cursor box",
   "C    colorbar   X     rulers",
-  "#    pixel grid",
+  "d    pixel grid",
   "","── Save / copy ──",
   "Ctrl+S          save original",
   "Ctrl+Alt+S      save mapped",
@@ -1331,7 +1331,7 @@ function onKeyDown(e) {
       if(ctrl)       {copyToClipboard("mapped");    break;}
       S.showColorbar=!S.showColorbar; break;
     case "x":case "X": S.showRulers=!S.showRulers; break;
-    case "#":          S.showGrid=!S.showGrid; break;
+    case "d":case "D": S.showGrid=!S.showGrid; break;
 
     case "y":case "Y": S.yFlip=!S.yFlip; break;
     case "0":          S.zeroIdx=!S.zeroIdx; break;
