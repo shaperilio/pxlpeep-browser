@@ -60,9 +60,36 @@ replacing it — gains are computed from the **corrected** values (raw × curren
 
 ## Measure tool
 
-*To be designed.* A **line** (two endpoints), center-snapped, showing width, height, diagonal, and
-angle (angle isn't in the current rectangle readout). Endpoint handling, angle convention, and
-readout layout are open.
+Hold **M** + left-drag → a **line** (two centre-snapped endpoints), labelled with a cursor-box-style
+box: **dx, dy** (signed), **L** (unsigned), **θ**. Signed dx/dy are why reversing the drag flips θ by
+180° — visible in the signs, cleaner than drawing a direction arrow. θ is math convention: 0° = east,
+CCW positive (up = +90°), range (−180°, 180°]. dx/dy stay in image-pixel coords (y-down), so a
+downward drag reads dy > 0 with a negative θ — the sign-flip pedagogy still holds on reversal.
+Measures **stack**; **Shift+M** pops the newest. Label anchors at the release endpoint.
+
+## Latched cursor boxes (P)
+
+Hold **P** + click → drop a **frozen** cursor readout at that pixel (centre-snapped: the square
+marker + X/Y/R/θ/value box). **Space** stays the *live* following cursor box; **P** *latches* a
+fixed one. Stack; **Shift+P** pops the newest. This is ROADMAP #11.
+
+## User units / calibration (U)
+
+`unitPerPix` / `unitName` already existed (the ROI box dual-displayed px + units), but nothing ever
+set them. **U** now calibrates off the most-recent measure line: a small in-app input (one field,
+`"<number> <unit>"`, unit is free text — "parsex" welcome) sets `unitPerPix = entered / L_px`. From
+then on every dimension — cursor box, info box, measure boxes, WB box — shows `value (value unit)`.
+It's a custom overlay input, not `window.prompt` (WebView2 blocks that), so one path serves both
+shells.
+
+## Tool-scoped Esc
+
+**Esc** clears the *entire* group of the most-recently-used tool (WB box / measures / latched),
+tracked by a per-group sequence stamp; repeated Esc walks back tool-by-tool. **Shift+key** is the
+fine granularity (pop one item from a given tool); Esc is the broom — so you can wipe a botched set
+of measurements with one keystroke without nuking your white balance. When Esc reaches the WB group
+it clears the *box* only; the correction is reverted solely by Shift+W. Rotating the image also
+clears the spatial overlays (they live in display space) but keeps the WB correction.
 
 ## Cursor info box + position markers
 
@@ -81,5 +108,4 @@ Thin lines on pixel boundaries so a flat, constant-colour region still shows its
 in. Black-flanked-white (visible over any value, like the rulers). **Auto-hidden** below a zoom
 threshold where the lines would collapse into mush — set to **64×**, the first zoom at which the
 rulers already show one tick per pixel, so the grid appears exactly when per-pixel structure is what
-you're inspecting. Toggle: **`d`** key + a `grid` toolbar button. *(Pending: the first pass shipped
-on `#` / 12×; updating to `d` / 64×.)*
+you're inspecting. Toggle: **`d`** key + a `grid` toolbar button.

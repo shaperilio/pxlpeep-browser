@@ -85,7 +85,17 @@ const S = {
   showHelp: false,
 
   // ROI (in image coordinates)
-  roi: { x1:0,y1:0,x2:0,y2:0, valid:false },
+  // WB tool: persistent corner-snapped box (or null). wbPeek bypasses the correction
+  // in the shader while Alt+W is held (a momentary "show original").
+  wbBox: null,
+  wbPeek: false,
+  // Measure tool: center-snapped line segments {x1,y1,x2,y2}. Latched cursor boxes:
+  // center-snapped points {ix,iy}. Both accumulate as stacks (Shift+key pops one).
+  measures: [],
+  latched: [],
+  // Tool-scoped Esc: each group stamps _seq at its last placement; Esc clears the
+  // group with the highest seq (the most-recently-used tool), one press per group.
+  _seq: 0, wbSeq: 0, measSeq: 0, latSeq: 0,
 
   // save options
   forceJpeg: false,
@@ -514,8 +524,9 @@ class Renderer {
     gl.uniform1f(this.u.uOffset, S.offset);
     gl.uniform1f(this.u.uSMin,   S.scaleMin);
     gl.uniform1f(this.u.uSMax,   S.scaleMax);
-    gl.uniform3f(this.u.uWBC, S.wbColor[0], S.wbColor[1], S.wbColor[2]);
-    gl.uniform4f(this.u.uWBG, S.wbGrey[0],  S.wbGrey[1],  S.wbGrey[2],  S.wbGrey[3]);
+    const _wbc=S.wbPeek?[1,1,1]:S.wbColor, _wbg=S.wbPeek?[1,1,1,1]:S.wbGrey;
+    gl.uniform3f(this.u.uWBC, _wbc[0], _wbc[1], _wbc[2]);
+    gl.uniform4f(this.u.uWBG, _wbg[0], _wbg[1], _wbg[2], _wbg[3]);
     gl.uniform2f(this.u.uSz, S.image.width, S.image.height);
     const dpr=window.devicePixelRatio||1;
     gl.uniform2f(this.u.uVP,   this.canvas.width/dpr, this.canvas.height/dpr);
@@ -559,8 +570,9 @@ class Renderer {
     gl.uniform1f(this.u.uOffset, S.offset);
     gl.uniform1f(this.u.uSMin,   S.scaleMin);
     gl.uniform1f(this.u.uSMax,   S.scaleMax);
-    gl.uniform3f(this.u.uWBC, S.wbColor[0], S.wbColor[1], S.wbColor[2]);
-    gl.uniform4f(this.u.uWBG, S.wbGrey[0],  S.wbGrey[1],  S.wbGrey[2],  S.wbGrey[3]);
+    const _wbc=S.wbPeek?[1,1,1]:S.wbColor, _wbg=S.wbPeek?[1,1,1,1]:S.wbGrey;
+    gl.uniform3f(this.u.uWBC, _wbc[0], _wbc[1], _wbc[2]);
+    gl.uniform4f(this.u.uWBG, _wbg[0], _wbg[1], _wbg[2], _wbg[3]);
     gl.uniform2f(this.u.uSz, S.image.width, S.image.height);
     gl.uniform2f(this.u.uVP, w, h);
     gl.uniform2f(this.u.uPan, 0, 0);
@@ -798,51 +810,60 @@ function readIFD(view, exifStart, ifdOffset, le) {
 // WHITE BALANCE (ported from ImageData.cpp — non-destructive via uniforms)
 // ══════════════════════════════════════════════════════════════════════════════
 
-function computeWBColor(img, x1,y1,x2,y2) {
+// WB gains that neutralise the box, STACKED over the current correction: the region
+// average is taken over the CORRECTED values (raw × current gains, clamped to 1.0 = the
+// 255 display clip), and the incremental gain is multiplied onto the current gains. So a
+// new WB composes over the existing one, and re-applying an already-neutral box is a
+// no-op — except where a gain clipped a channel, which is the intended saturation
+// dependence. `base` defaults to identity, so an unstacked call gives absolute gains.
+function computeWBColor(img, x1,y1,x2,y2, base) {
+  base=base||[1,1,1];
   const { width, data } = img;
   const rX=Math.floor(Math.max(0,Math.min(x1,x2)));
   const rY=Math.floor(Math.max(0,Math.min(y1,y2)));
   const rW=Math.floor(Math.abs(x2-x1));
   const rH=Math.floor(Math.abs(y2-y1));
-  if (rW<1||rH<1) return S.wbColor;
+  if (rW<1||rH<1) return base;
   const avg=[0,0,0]; let qty=0;
   for (let r=0;r<rH;r++) for (let c=0;c<rW;c++) {
     const i=((rY+r)*width+(rX+c))*3;
-    avg[0]+=data[i]*255; avg[1]+=data[i+1]*255; avg[2]+=data[i+2]*255; qty++;
+    avg[0]+=Math.min(1,data[i]  *base[0])*255;
+    avg[1]+=Math.min(1,data[i+1]*base[1])*255;
+    avg[2]+=Math.min(1,data[i+2]*base[2])*255; qty++;
   }
-  if (!qty) return S.wbColor;
+  if (!qty) return base;
   avg[0]/=qty; avg[1]/=qty; avg[2]/=qty;
   const goal=(avg[0]+avg[1]+avg[2])/3;
-  if (!goal) return S.wbColor;
+  if (!goal) return base;
   return [
-    goal/Math.max(avg[0],1e-9),
-    goal/Math.max(avg[1],1e-9),
-    goal/Math.max(avg[2],1e-9),
+    base[0]*goal/Math.max(avg[0],1e-9),
+    base[1]*goal/Math.max(avg[1],1e-9),
+    base[2]*goal/Math.max(avg[2],1e-9),
   ];
 }
 
-function computeWBGrey(img, x1,y1,x2,y2) {
+function computeWBGrey(img, x1,y1,x2,y2, base) {
+  base=base||[1,1,1,1];
   const { width, data } = img;
   const rX=Math.floor(Math.max(0,Math.min(x1,x2)));
   const rY=Math.floor(Math.max(0,Math.min(y1,y2)));
   const rW=Math.floor(Math.abs(x2-x1));
   const rH=Math.floor(Math.abs(y2-y1));
-  if (rW<2||rH<2) return S.wbGrey;
-  const avg=[[0,0],[0,0]], qty=[[0,0],[0,0]];
+  if (rW<2||rH<2) return base;
+  const avg=[0,0,0,0], qty=[0,0,0,0];
   for (let r=0;r<rH;r++) for (let c=0;c<rW;c++) {
-    const col=rX+c, row=rY+r;
-    avg[col%2][row%2]+=data[row*width+col]*255;
-    qty[col%2][row%2]++;
+    const col=rX+c, row=rY+r, q=(col%2)+(row%2)*2;
+    avg[q]+=Math.min(1,data[row*width+col]*base[q])*255;
+    qty[q]++;
   }
-  for (let c=0;c<2;c++) for (let r=0;r<2;r++)
-    if(qty[c][r]) avg[c][r]/=qty[c][r];
-  const goal=(avg[0][0]+avg[1][0]+avg[0][1]+avg[1][1])/4;
-  if (!goal) return S.wbGrey;
+  for (let q=0;q<4;q++) if(qty[q]) avg[q]/=qty[q];
+  const goal=(avg[0]+avg[1]+avg[2]+avg[3])/4;
+  if (!goal) return base;
   return [
-    goal/Math.max(avg[0][0],1e-9),
-    goal/Math.max(avg[1][0],1e-9),
-    goal/Math.max(avg[0][1],1e-9),
-    goal/Math.max(avg[1][1],1e-9),
+    base[0]*goal/Math.max(avg[0],1e-9),
+    base[1]*goal/Math.max(avg[1],1e-9),
+    base[2]*goal/Math.max(avg[2],1e-9),
+    base[3]*goal/Math.max(avg[3],1e-9),
   ];
 }
 
@@ -870,7 +891,9 @@ function drawAll(ctx, ow, oh) {
   if (S.showGrid)     drawGrid(ctx, lw, lh_);
   if (S.showRulers)   drawRulers(ctx, lw, lh_);
   if (S.showColorbar) drawColorbar(ctx, lw, lh_);
-  drawROI(ctx);
+  drawWBBox(ctx, lw, lh_);
+  drawMeasures(ctx, lw, lh_);
+  drawLatched(ctx, lw, lh_);
   if (S.showInfo)     drawInfoBox(ctx, lw, lh_);
   if (S.showCursor)   drawCursorBox(ctx, lw, lh_);
   if (S.showHelp)     drawHelp(ctx, lw, lh_);
@@ -955,7 +978,7 @@ function drawInfoBox(ctx, ow, oh) {
   // Cursor info — shared readout at the raw cursor position.
   const [ix,iy]=viewToImg(S.cursorX,S.cursorY);
   const rd=pixelReadout(ix,iy);
-  let line5=`X=${rd.curX.toFixed(1)} Y=${rd.curY.toFixed(1)}  R=${rd.R.toFixed(1)} θ=${rd.theta.toFixed(1)}°`;
+  let line5=`X=${rd.curX.toFixed(1)}${unitSuffix(rd.curX)} Y=${rd.curY.toFixed(1)}${unitSuffix(rd.curY)}  R=${rd.R.toFixed(1)}${unitSuffix(rd.R)} θ=${rd.theta.toFixed(1)}°`;
   if(rd.val!==null) line5+=`  → ${rd.val}`;
   lines.push(line5);
 
@@ -1019,8 +1042,8 @@ function drawCursorBox(ctx, ow, oh) {
 
   const rd=pixelReadout(ix,iy);
   const lines=[
-    `X = ${rd.curX.toFixed(1)}, Y = ${rd.curY.toFixed(1)}`,
-    `R = ${rd.R.toFixed(1)}, θ = ${rd.theta.toFixed(1)}°`,
+    `X = ${rd.curX.toFixed(1)}${unitSuffix(rd.curX)}, Y = ${rd.curY.toFixed(1)}${unitSuffix(rd.curY)}`,
+    `R = ${rd.R.toFixed(1)}${unitSuffix(rd.R)}, θ = ${rd.theta.toFixed(1)}°`,
   ];
   if (rd.val!==null) lines.push(rd.val);
 
@@ -1187,31 +1210,145 @@ function drawGrid(ctx, ow, oh) {
   pass("#000",3); pass("#fff",1);
 }
 
-function drawROI(ctx) {
-  if(!S.roi.valid) return;
-  const [sx1,sy1]=imgToView(S.roi.x1,S.roi.y1);
-  const [sx2,sy2]=imgToView(S.roi.x2,S.roi.y2);
+// Unit annotation for a pixel value: "" when uncalibrated, else " (X.XXX unit)".
+function unitSuffix(px){
+  return S.unitPerPix===1 ? "" : ` (${(px*S.unitPerPix).toFixed(3)} ${S.unitName})`;
+}
 
-  const stroke=(style,lw)=>{
-    ctx.strokeStyle=style; ctx.lineWidth=lw;
-    ctx.beginPath();ctx.moveTo(sx1,sy1);ctx.lineTo(sx2,sy2);ctx.stroke();
-    ctx.strokeRect(Math.min(sx1,sx2),Math.min(sy1,sy2),Math.abs(sx2-sx1),Math.abs(sy2-sy1));
-  };
-  stroke("#000",3); stroke("#fff",1);
+// A right-aligned black readout box anchored near (ax,ay), clamped on-canvas. Shared by
+// the cursor box, latched boxes, measures, and the WB box so their look always agrees.
+function drawLabelBox(ctx, ax, ay, lines, ow, oh){
+  const lineH=lh(ctx);
+  const maxW=Math.max(...lines.map(l=>tw(ctx,l)));
+  const bw=maxW+MAR*2, bh=lineH*lines.length+MAR*2;
+  const bx=Math.max(0,Math.min(ow-bw,ax)), by=Math.max(0,Math.min(oh-bh,ay));
+  blackBox(ctx,bx,by,bw,bh);
+  ctx.fillStyle="#fff";
+  lines.forEach((l,i)=>ctx.fillText(l, bx+bw-tw(ctx,l)-MAR, by+MAR+lineH*(i+1)-2));
+}
 
-  const dx=Math.abs(S.roi.x2-S.roi.x1), dy=Math.abs(S.roi.y2-S.roi.y1);
-  const diag=Math.sqrt(dx*dx+dy*dy), area=dx*dy;
-  let label;
-  if(S.unitPerPix===1)
-    label=`dx=${Math.round(dx)} dy=${Math.round(dy)} → d=${diag.toFixed(1)} px  area=${Math.round(area)} px²`;
-  else {
-    const u=S.unitName;
-    label=`dx=${Math.round(dx)} (${(dx*S.unitPerPix).toFixed(3)}) dy=${Math.round(dy)} (${(dy*S.unitPerPix).toFixed(3)}) → d=${diag.toFixed(1)} (${(diag*S.unitPerPix).toFixed(3)}) ${u}  area=${Math.round(area)} px²`;
-  }
-  const lw2=tw(ctx,label), lineH=lh(ctx);
-  const cx=(sx1+sx2)/2-lw2/2, cy=(sy1+sy2)/2-lineH/2;
-  blackBox(ctx,cx-2,cy-lineH,lw2+4,lineH+4);
-  ctx.fillStyle="#fff"; ctx.fillText(label,cx,cy);
+// Nested black/white/black pixel-centre marker (18px) — the cursor snap marker and
+// every latched box use it.
+function drawPixelMarker(ctx, refX, refY){
+  const third=3, half=9, size=18;
+  ctx.fillStyle="#000"; ctx.fillRect(refX-half,         refY-half,         size,         size);
+  ctx.fillStyle="#fff"; ctx.fillRect(refX-half+third,   refY-half+third,   size-2*third,  size-2*third);
+  ctx.fillStyle="#000"; ctx.fillRect(refX-half+2*third, refY-half+2*third, size-4*third,  size-4*third);
+}
+
+// A frozen cursor readout at pixel-centre (ix,iy): marker + X/Y/R/θ/value box.
+function drawReadoutAt(ctx, ix, iy, ow, oh){
+  const [vx,vy]=imgToView(ix,iy);
+  const refX=Math.round(vx), refY=Math.round(vy);
+  drawPixelMarker(ctx, refX, refY);
+  const rd=pixelReadout(ix,iy);
+  const lines=[
+    `X = ${rd.curX.toFixed(1)}${unitSuffix(rd.curX)}, Y = ${rd.curY.toFixed(1)}${unitSuffix(rd.curY)}`,
+    `R = ${rd.R.toFixed(1)}${unitSuffix(rd.R)}, θ = ${rd.theta.toFixed(1)}°`,
+  ];
+  if(rd.val!==null) lines.push(rd.val);
+  drawLabelBox(ctx, refX+10, refY+10, lines, ow, oh);
+}
+
+function drawLatched(ctx, ow, oh){
+  for(const p of S.latched) drawReadoutAt(ctx, p.ix, p.iy, ow, oh);
+}
+
+// WB box: corner-snapped rectangle + a w×h label (no diagonal — meaningless for WB).
+function drawWBBox(ctx, ow, oh){
+  if(!S.wbBox) return;
+  const b=S.wbBox;
+  const [sx1,sy1]=imgToView(b.x1,b.y1), [sx2,sy2]=imgToView(b.x2,b.y2);
+  const x=Math.min(sx1,sx2), y=Math.min(sy1,sy2), w=Math.abs(sx2-sx1), h=Math.abs(sy2-sy1);
+  ctx.strokeStyle="#000"; ctx.lineWidth=3; ctx.strokeRect(x,y,w,h);
+  ctx.strokeStyle="#fff"; ctx.lineWidth=1; ctx.strokeRect(x,y,w,h);
+  const dw=Math.abs(b.x2-b.x1), dh=Math.abs(b.y2-b.y1);
+  drawLabelBox(ctx, x+w+4, y, [`${Math.round(dw)}${unitSuffix(dw)} × ${Math.round(dh)}${unitSuffix(dh)}`], ow, oh);
+}
+
+// One measure line + its dx/dy/L/θ box. dx,dy are SIGNED (the direction that makes θ
+// flip when you reverse the drag); θ is math convention (0° east, CCW+, up=+90).
+function drawOneMeasure(ctx, m, ow, oh){
+  const [sx1,sy1]=imgToView(m.x1,m.y1), [sx2,sy2]=imgToView(m.x2,m.y2);
+  ctx.strokeStyle="#000"; ctx.lineWidth=3; ctx.beginPath();ctx.moveTo(sx1,sy1);ctx.lineTo(sx2,sy2);ctx.stroke();
+  ctx.strokeStyle="#fff"; ctx.lineWidth=1; ctx.beginPath();ctx.moveTo(sx1,sy1);ctx.lineTo(sx2,sy2);ctx.stroke();
+  const dx=m.x2-m.x1, dy=m.y2-m.y1, L=Math.hypot(dx,dy);
+  const theta=Math.atan2(-dy,dx)*180/Math.PI;
+  const sgn=v=>(v>=0?"+":"")+Math.round(v);
+  const lines=[
+    `dx = ${sgn(dx)}${unitSuffix(dx)}`,
+    `dy = ${sgn(dy)}${unitSuffix(dy)}`,
+    `L = ${L.toFixed(1)}${unitSuffix(L)}`,
+    `θ = ${theta.toFixed(1)}°`,
+  ];
+  drawLabelBox(ctx, sx2+10, sy2+10, lines, ow, oh);
+}
+
+function drawMeasures(ctx, ow, oh){
+  for(const m of S.measures) drawOneMeasure(ctx, m, ow, oh);
+  if(measureDrag) drawOneMeasure(ctx, measureDrag, ow, oh);
+}
+
+// ── Tool actions ───────────────────────────────────────────────────────────────
+function revertWB(){ S.wbColor=[1,1,1]; S.wbGrey=[1,1,1,1]; recomputeMinMax(); recalcScale(); }
+function applyWBFromBox(){
+  if(!S.wbBox||!S.image) return;
+  const b=S.wbBox;
+  if(S.image.numChannels===1) S.wbGrey =computeWBGrey (S.image,b.x1,b.y1,b.x2,b.y2,S.wbGrey);
+  else                        S.wbColor=computeWBColor(S.image,b.x1,b.y1,b.x2,b.y2,S.wbColor);
+  recomputeMinMax(); recalcScale();
+  S.wbSeq=++S._seq;
+}
+function addMeasure(m){ S.measures.push(m); S.measSeq=++S._seq; }
+function addLatched(ix,iy){ S.latched.push({ix,iy}); S.latSeq=++S._seq; }
+// Esc clears the whole group of the most-recently-used tool (highest seq); repeated Esc
+// walks back tool-by-tool. Shift+key still pops a single item from a given tool.
+function escClear(){
+  const g=[];
+  if(S.wbBox)           g.push([S.wbSeq,   ()=>{S.wbBox=null;}]);
+  if(S.measures.length) g.push([S.measSeq, ()=>{S.measures=[];}]);
+  if(S.latched.length)  g.push([S.latSeq,  ()=>{S.latched=[];}]);
+  if(!g.length) return;
+  g.sort((a,b)=>b[0]-a[0]);
+  g[0][1]();
+}
+// Calibrate user units off the most-recent measure line: unitPerPix = entered / L_px.
+// A small in-app input overlay (not window.prompt, which WebView2 blocks); one text
+// field "<number> <unit>".
+function openCalibration(){
+  if(!S.measures.length || document.getElementById("pxlpeep-calib")) return;
+  const m=S.measures[S.measures.length-1];
+  const Lpx=Math.hypot(m.x2-m.x1, m.y2-m.y1);
+  if(Lpx<=0) return;
+  const box=document.createElement("div");
+  box.id="pxlpeep-calib";
+  Object.assign(box.style,{position:"fixed",top:"50%",left:"50%",transform:"translate(-50%,-50%)",
+    zIndex:"2147483647",background:"rgba(20,20,20,0.96)",border:"1px solid #555",borderRadius:"8px",
+    padding:"16px 18px",font:"13px monospace",color:"#eee",boxShadow:"0 4px 20px rgba(0,0,0,0.6)"});
+  const label=document.createElement("div");
+  label.textContent=`This ${Math.round(Lpx)}px line is:`; label.style.marginBottom="8px";
+  const input=document.createElement("input");
+  input.type="text"; input.placeholder="10 mm";
+  Object.assign(input.style,{font:"13px monospace",padding:"5px 7px",width:"160px",
+    background:"#111",color:"#eee",border:"1px solid #555",borderRadius:"4px"});
+  const hint=document.createElement("div");
+  hint.textContent='number then unit, e.g. "10 mm" — Enter to set, Esc to cancel';
+  Object.assign(hint.style,{marginTop:"7px",fontSize:"10px",color:"#888"});
+  box.appendChild(label); box.appendChild(input); box.appendChild(hint);
+  document.body.appendChild(box);
+  const close=()=>{ box.remove(); requestFrame(); };
+  input.addEventListener("keydown",ev=>{
+    ev.stopPropagation();
+    if(ev.key==="Enter"){
+      const raw=input.value.trim(), sp=raw.search(/\s/);
+      const numStr=sp<0?raw:raw.slice(0,sp);
+      const unit=sp<0?"units":(raw.slice(sp+1).trim()||"units");
+      const val=parseFloat(numStr);
+      if(isFinite(val)&&val>0){ S.unitPerPix=val/Lpx; S.unitName=unit; }
+      close();
+    } else if(ev.key==="Escape"){ close(); }
+  });
+  input.focus();
 }
 
 // ── Help ──────────────────────────────────────────────────────────────────────
@@ -1219,7 +1356,6 @@ const HELP_LINES=[
   "pxlpeep "+PXLPEEP_VERSION,"",
   "── Mouse ──",
   "Left drag              pan",
-  "Shift+Left drag     select ROI",
   "Wheel                  zoom",
   "","── Zoom ──",
   "Ctrl+1            zoom to fit",
@@ -1235,9 +1371,16 @@ const HELP_LINES=[
   "R          toggle red  (Shift: solo)",
   "G          toggle green(Shift: solo)",
   "B          toggle blue (Shift: solo)",
-  "","── White Balance ──",
-  "W          WB from ROI (draw first)",
+  "","── Tools (hold key + drag) ──",
+  "W drag     white balance (stacks)",
+  "Alt+W      peek pre-WB (hold)",
   "Shift+W    reset white balance",
+  "M drag     measure line",
+  "Shift+M    undo last measure",
+  "U          set units (last measure)",
+  "P click    drop info box",
+  "Shift+P    undo last box",
+  "Esc        clear newest tool group",
   "","── Transform ──",
   "A / Shift+A   rotate CW / CCW",
   "L             flip horizontal",
@@ -1320,7 +1463,7 @@ function onKeyDown(e) {
 
     case "a":case "A":
       S.rotation=((S.rotation+(shift?-1:1))%4+4)%4;
-      S.roi.valid=false; break;
+      S.wbBox=null; S.measures=[]; S.latched=[]; break;   // spatial overlays don't survive rotation
     case "l":case "L": S.flipH=!S.flipH; break;
     case "t":case "T": S.flipV=!S.flipV; break;
 
@@ -1338,15 +1481,26 @@ function onKeyDown(e) {
 
     case "w":case "W":
       if(ctrl){handled=false;break;}
-      if(shift){S.wbColor=[1,1,1];S.wbGrey=[1,1,1,1];recomputeMinMax();recalcScale();break;}
-      if(S.roi.valid&&S.image){
-        const roi=S.roi;
-        if(S.image.numChannels===1)
-          S.wbGrey=computeWBGrey(S.image,roi.x1,roi.y1,roi.x2,roi.y2);
-        else
-          S.wbColor=computeWBColor(S.image,roi.x1,roi.y1,roi.x2,roi.y2);
-        recomputeMinMax();recalcScale();
-      }
+      if(alt){ if(!S.wbPeek) S.wbPeek=true; break; }   // hold Alt+W = peek at pre-WB
+      if(shift){ revertWB(); break; }                   // permanent revert (keeps the box)
+      if(!wHeld){ wHeld=true; wDragged=false; }          // arm W+drag; a bare tap clears the box
+      break;
+    case "m":case "M":
+      if(ctrl){handled=false;break;}
+      if(shift){ if(!e.repeat) S.measures.pop(); break; }   // undo last measure
+      if(!mHeld) mHeld=true;                                // arm M+drag
+      break;
+    case "p":case "P":
+      if(ctrl){handled=false;break;}
+      if(shift){ if(!e.repeat) S.latched.pop(); break; }    // undo last latched box
+      if(!pHeld) pHeld=true;                                // arm P+click
+      break;
+    case "u":case "U":
+      if(ctrl){handled=false;break;}
+      if(!e.repeat) openCalibration();                      // set units off last measure
+      break;
+    case "Escape":
+      if(!e.repeat) escClear();                             // clear newest tool group
       break;
 
     default:
@@ -1358,8 +1512,16 @@ function onKeyDown(e) {
   requestFrame();
 }
 
-function onKeyUp() {
+function onKeyUp(e) {
   if(S.showHelp){S.showHelp=false;requestFrame();}
+  const k=e.key;
+  if(k==="w"||k==="W"){
+    if(S.wbPeek){S.wbPeek=false;requestFrame();}
+    if(wHeld){ if(!wDragged) S.wbBox=null; wHeld=false; requestFrame(); }  // bare tap clears the box
+  } else if(k==="Alt"){
+    if(S.wbPeek){S.wbPeek=false;requestFrame();}                          // peek ends on Alt release too
+  } else if(k==="m"||k==="M"){ mHeld=false; }
+  else if(k==="p"||k==="P"){ pHeld=false; }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1664,24 +1826,17 @@ function buildToolbar() {
   // ── Rotate/flip ──
   tb.appendChild(row(
     lbl("rotate"),
-    btn("↺ CCW","Rotate CCW",()=>{S.rotation=((S.rotation-1)%4+4)%4;S.roi.valid=false;requestFrame();refresh();}),
-    btn("↻ CW", "Rotate CW", ()=>{S.rotation=(S.rotation+1)%4;          S.roi.valid=false;requestFrame();refresh();}),
+    btn("↺ CCW","Rotate CCW",()=>{S.rotation=((S.rotation-1)%4+4)%4;S.wbBox=null;S.measures=[];S.latched=[];requestFrame();refresh();}),
+    btn("↻ CW", "Rotate CW", ()=>{S.rotation=(S.rotation+1)%4;          S.wbBox=null;S.measures=[];S.latched=[];requestFrame();refresh();}),
   ));
   const flipH2=btn("⇄H","Flip horizontal",()=>{S.flipH=!S.flipH;requestFrame();refresh();});
   const flipV2=btn("⇅V","Flip vertical",  ()=>{S.flipV=!S.flipV;requestFrame();refresh();});
   tb.appendChild(row(lbl("flip"),flipH2,flipV2));
 
-  // ── WB ──
+  // ── WB (hold W + drag to apply, stacked; Alt+W peeks; Shift+W / this resets) ──
   tb.appendChild(row(
     lbl("WB"),
-    btn("from ROI","Apply WB from selection (draw ROI first)",()=>{
-      if(S.roi.valid&&S.image){
-        if(S.image.numChannels===1) S.wbGrey=computeWBGrey(S.image,S.roi.x1,S.roi.y1,S.roi.x2,S.roi.y2);
-        else S.wbColor=computeWBColor(S.image,S.roi.x1,S.roi.y1,S.roi.x2,S.roi.y2);
-        recomputeMinMax();recalcScale();requestFrame();refresh();
-      }
-    }),
-    btn("reset","Reset white balance",()=>{S.wbColor=[1,1,1];S.wbGrey=[1,1,1,1];recomputeMinMax();recalcScale();requestFrame();refresh();}),
+    btn("reset","Reset white balance (Shift+W)",()=>{revertWB();requestFrame();refresh();}),
   ));
 
   // ── Overlays ──
@@ -1916,50 +2071,69 @@ startLoad();
 // Pointer events (not mouse events) so drags can capture the pointer: pan/ROI
 // keep tracking outside the window, and the release is always delivered — with
 // mouse events, a mouseup outside the window left the drag stuck "on".
-let panDrag=null, roiDrag=null, wheelAcc=0;
+let panDrag=null, wbDrag=null, measureDrag=null, wheelAcc=0;
+// Held tool-modifier keys (set/cleared by the keyboard handlers + window blur); a left
+// drag/click means WB / measure / latch depending on which is down, else pan.
+let wHeld=false, mHeld=false, pHeld=false, wDragged=false;
+
+const snapCorner=(v,max)=>Math.max(0,Math.min(max,Math.round(v)));           // pixel EDGE (WB encloses whole pixels)
+const snapCentre=(v,max)=>Math.max(0.5,Math.min(max-0.5,Math.floor(v)+0.5)); // pixel CENTRE (measure / latch)
 
 function endDrag() {
-  panDrag=null; roiDrag=null;
+  panDrag=null; wbDrag=null; measureDrag=null;
   ovCanvas.style.cursor="crosshair";
 }
 
 ovCanvas.addEventListener("pointerdown",e=>{
   if(e.button!==0) return;
   try { ovCanvas.setPointerCapture(e.pointerId); } catch {} // pointer may already be gone
-  if(!e.shiftKey) {
+  const img=S.image;
+  const [ix,iy]=viewToImg(e.clientX,e.clientY);
+  if(wHeld && img) {                       // WB: corner-snapped box, applied on release
+    wDragged=true;
+    const x=snapCorner(ix,img.width), y=snapCorner(iy,img.height);
+    wbDrag={x0:x,y0:y}; S.wbBox={x1:x,y1:y,x2:x,y2:y};
+  } else if(mHeld && img) {                // measure: centre-snapped line
+    const x=snapCentre(ix,img.width), y=snapCentre(iy,img.height);
+    measureDrag={x1:x,y1:y,x2:x,y2:y};
+  } else if(pHeld && img) {                // latch a cursor box at the clicked pixel
+    addLatched(snapCentre(ix,img.width), snapCentre(iy,img.height));
+  } else {                                 // pan
     panDrag={sx:e.clientX,sy:e.clientY,px:S.panX,py:S.panY};
     ovCanvas.style.cursor="grabbing";
-  } else {
-    const [ix,iy]=viewToImg(e.clientX,e.clientY);
-    roiDrag={x:ix,y:iy};
-    S.roi={x1:ix,y1:iy,x2:ix,y2:iy,valid:false};
   }
-  e.preventDefault();
+  e.preventDefault(); requestFrame();
 });
 
 ovCanvas.addEventListener("pointermove",e=>{
   S.cursorX=e.clientX; S.cursorY=e.clientY;
   // Self-heal: if the button was released where we couldn't see it, end the drag.
-  if((panDrag||roiDrag)&&!(e.buttons&1)) endDrag();
+  if((panDrag||wbDrag||measureDrag)&&!(e.buttons&1)) endDrag();
+  const img=S.image;
   if(panDrag) {
     S.panX=panDrag.px+(e.clientX-panDrag.sx);
     S.panY=panDrag.py+(e.clientY-panDrag.sy);
-  } else if(roiDrag) {
-    const img=S.image;
+  } else if(wbDrag && img) {
     const [ix,iy]=viewToImg(e.clientX,e.clientY);
-    // Snap both corners to pixel CENTRES (whole pixels only): a fractional ROI is
-    // meaningless to measure and ambiguous for the WB average. dx/dy then come out as
-    // whole pixels, matching the pixel count WB floors the span to.
-    const snap=(v,max)=>Math.max(0.5,Math.min(max-0.5,Math.floor(v)+0.5));
-    const x1=snap(roiDrag.x,img?.width ??1e9), y1=snap(roiDrag.y,img?.height??1e9);
-    const x2=snap(ix,       img?.width ??1e9), y2=snap(iy,       img?.height??1e9);
-    const dx=Math.abs(x2-x1), dy=Math.abs(y2-y1);
-    S.roi={x1,y1,x2,y2,valid:dx>=1&&dy>=1};
+    S.wbBox={x1:wbDrag.x0,y1:wbDrag.y0,x2:snapCorner(ix,img.width),y2:snapCorner(iy,img.height)};
+  } else if(measureDrag && img) {
+    const [ix,iy]=viewToImg(e.clientX,e.clientY);
+    measureDrag.x2=snapCentre(ix,img.width); measureDrag.y2=snapCentre(iy,img.height);
   }
   requestFrame();
 });
 
-ovCanvas.addEventListener("pointerup",endDrag);
+ovCanvas.addEventListener("pointerup",e=>{
+  if(wbDrag) {
+    const b=S.wbBox;
+    if(b && Math.abs(b.x2-b.x1)>=1 && Math.abs(b.y2-b.y1)>=1) applyWBFromBox();
+    else S.wbBox=null;                     // zero-size: discard
+  } else if(measureDrag) {
+    const m=measureDrag;
+    if(Math.abs(m.x2-m.x1)>=1 || Math.abs(m.y2-m.y1)>=1) addMeasure({x1:m.x1,y1:m.y1,x2:m.x2,y2:m.y2});
+  }
+  endDrag(); refreshToolbar(); requestFrame();
+});
 ovCanvas.addEventListener("pointercancel",endDrag);
 
 ovCanvas.addEventListener("contextmenu",e=>e.preventDefault());
@@ -1975,12 +2149,14 @@ ovCanvas.addEventListener("wheel",e=>{
 // Keyboard
 window.addEventListener("keydown",onKeyDown);
 window.addEventListener("keyup",onKeyUp);
+// Never leave a tool key "stuck" if we miss its keyup (focus lost mid-hold).
+window.addEventListener("blur",()=>{ wHeld=mHeld=pHeld=false; if(S.wbPeek){S.wbPeek=false;requestFrame();} });
 
 // Resize
 window.addEventListener("resize",()=>{sizeCanvases();requestFrame();});
 
 // Test hooks
-window.__pxlpeep = { S, env, PXLPEEP_VERSION, computeWBColor, computeWBGrey, recalcScale, recomputeMinMax, loadImage, zoomToFit, zoomTo1to1, pixelReadout, mappedSuffix, save, copyToClipboard, reloadImage };
+window.__pxlpeep = { S, env, PXLPEEP_VERSION, computeWBColor, computeWBGrey, recalcScale, recomputeMinMax, loadImage, zoomToFit, zoomTo1to1, pixelReadout, mappedSuffix, save, copyToClipboard, reloadImage, applyWBFromBox, revertWB, escClear, addMeasure, addLatched, openCalibration, unitSuffix };
 
 // Initial frame
 requestFrame();
