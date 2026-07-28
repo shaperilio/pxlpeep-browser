@@ -1231,10 +1231,15 @@ function drawMarkerAndBox(ctx, ix, iy, lines, ow, oh){
   drawLabelBox(ctx, refX+10, refY+10, lines, ow, oh);
 }
 
-// Latched boxes store display coords + a FROZEN readout (snapshot at latch time, so it
-// survives rotation/flip); the marker still picks +/square by current zoom.
+// Latched boxes recompute X/Y/R/θ + units LIVE from their (rotation-transformed) display
+// coords — so they track the ruler and calibration — but the pixel VALUE is frozen at pin
+// time (the display coords would mis-sample the raw texture after a rotation). Marker is
+// +/square by current zoom.
 function drawLatched(ctx, ow, oh){
-  for(const p of S.latched) drawMarkerAndBox(ctx, p.x, p.y, p.lines, ow, oh);
+  for(const p of S.latched){
+    const rd=pixelReadout(p.x, p.y); rd.val=p.val;
+    drawMarkerAndBox(ctx, p.x, p.y, cursorLines(rd), ow, oh);
+  }
 }
 
 // WB box: corner-snapped rectangle + a w×h label (no diagonal — meaningless for WB).
@@ -1285,27 +1290,45 @@ function applyWBFromBox(){
   S.wbSeq=++S._seq;
 }
 function addMeasure(m){ S.measures.push(m); S.measSeq=++S._seq; }
-function addLatched(ix,iy){ S.latched.push({x:ix, y:iy, lines:cursorLines(pixelReadout(ix,iy))}); S.latSeq=++S._seq; }
+function addLatched(ix,iy){ S.latched.push({x:ix, y:iy, val:pixelReadout(ix,iy).val}); S.latSeq=++S._seq; }
 
 // Rotate/flip transform the overlays with the image so they stay pinned to content (the
 // readout boxes are drawn axis-aligned, so text stays upright). Display-pixel dims for
 // the current rotation:
-function dispDims(){ return (S.rotation===1||S.rotation===3) ? [S.image.height, S.image.width] : [S.image.width, S.image.height]; }
-function transformOverlays(fn){
-  for(const m of S.measures){ [m.x1,m.y1]=fn(m.x1,m.y1); [m.x2,m.y2]=fn(m.x2,m.y2); }
-  for(const p of S.latched){ [p.x,p.y]=fn(p.x,p.y); }
-  if(S.wbBox){ const b=S.wbBox; [b.x1,b.y1]=fn(b.x1,b.y1); [b.x2,b.y2]=fn(b.x2,b.y2); }
+// Display-pixel <-> raw-texture mapping for a given rotation/flip, matching the shader
+// xform() (flip THEN rotate).
+function dispToRaw(dx,dy,rot,fH,fV){
+  const iW=S.image.width, iH=S.image.height;
+  const dW=(rot===1||rot===3)?iH:iW, dH=(rot===1||rot===3)?iW:iH;
+  let u=dx/dW, v=dy/dH;
+  if(fH) u=1-u; if(fV) v=1-v;
+  if(rot===1){ const a=u; u=v;   v=1-a; }
+  else if(rot===2){ u=1-u; v=1-v; }
+  else if(rot===3){ const a=u; u=1-v; v=a; }
+  return [u*iW, v*iH];
 }
-// Call BEFORE changing S.rotation (uses the current dims). cw = the +1 / ↻ direction.
-function rotateOverlays(cw){
-  if(!S.image) return;
-  const [dW,dH]=dispDims();
-  transformOverlays(cw ? (x,y)=>[dH-y, x] : (x,y)=>[y, dW-x]);
+function rawToDisp(rx,ry,rot,fH,fV){
+  const iW=S.image.width, iH=S.image.height;
+  const dW=(rot===1||rot===3)?iH:iW, dH=(rot===1||rot===3)?iW:iH;
+  let u=rx/iW, v=ry/iH;
+  if(rot===1){ const a=u; u=1-v; v=a; }
+  else if(rot===2){ u=1-u; v=1-v; }
+  else if(rot===3){ const a=u; u=v;   v=1-a; }
+  if(fH) u=1-u; if(fV) v=1-v;
+  return [u*dW, v*dH];
 }
-function flipOverlays(horizontal){
+// Remap every overlay point (and any in-progress drag anchor) from the OLD display frame
+// to the current one, THROUGH raw texture coords — exact for any rotation×flip combo. A
+// bare display-space rotation is wrong once a single flip is active (the shader flips
+// before rotating). Call AFTER updating S.rotation/flip, with the pre-change state.
+function retransformOverlays(oldRot, oldFH, oldFV){
   if(!S.image) return;
-  const [dW,dH]=dispDims();
-  transformOverlays(horizontal ? (x,y)=>[dW-x, y] : (x,y)=>[x, dH-y]);
+  const map=(x,y)=>{ const [rx,ry]=dispToRaw(x,y,oldRot,oldFH,oldFV); return rawToDisp(rx,ry,S.rotation,S.flipH,S.flipV); };
+  for(const m of S.measures){ [m.x1,m.y1]=map(m.x1,m.y1); [m.x2,m.y2]=map(m.x2,m.y2); }
+  for(const p of S.latched){ [p.x,p.y]=map(p.x,p.y); }
+  if(S.wbBox){ const b=S.wbBox; [b.x1,b.y1]=map(b.x1,b.y1); [b.x2,b.y2]=map(b.x2,b.y2); }
+  if(measureDrag){ [measureDrag.x1,measureDrag.y1]=map(measureDrag.x1,measureDrag.y1); [measureDrag.x2,measureDrag.y2]=map(measureDrag.x2,measureDrag.y2); }
+  if(wbDrag){ [wbDrag.x0,wbDrag.y0]=map(wbDrag.x0,wbDrag.y0); }
 }
 // Esc clears the whole group of the most-recently-used tool (highest seq); repeated Esc
 // walks back tool-by-tool. Shift+key still pops a single item from a given tool.
@@ -1466,11 +1489,10 @@ function onKeyDown(e) {
     case "b":case "B":
       S.channels=shift?CHAN_B:(S.channels^CHAN_B)||CHAN_B; break;
 
-    case "a":case "A":
-      rotateOverlays(!shift);                              // transform overlays with the image
-      S.rotation=((S.rotation+(shift?-1:1))%4+4)%4; break;
-    case "l":case "L": flipOverlays(true);  S.flipH=!S.flipH; break;
-    case "t":case "T": flipOverlays(false); S.flipV=!S.flipV; break;
+    case "a":case "A": { const or=S.rotation,ofh=S.flipH,ofv=S.flipV;
+      S.rotation=((S.rotation+(shift?-1:1))%4+4)%4; retransformOverlays(or,ofh,ofv); break; }
+    case "l":case "L": { const or=S.rotation,ofh=S.flipH,ofv=S.flipV; S.flipH=!S.flipH; retransformOverlays(or,ofh,ofv); break; }
+    case "t":case "T": { const or=S.rotation,ofh=S.flipH,ofv=S.flipV; S.flipV=!S.flipV; retransformOverlays(or,ofh,ofv); break; }
 
     case "i":case "I": S.showInfo=!S.showInfo; break;
     case " ":          break;   // retired — the live cursor box is now "hold P"
@@ -1527,7 +1549,7 @@ function onKeyUp(e) {
   } else if(k==="Alt"){
     if(S.wbPeek){S.wbPeek=false;requestFrame();}                          // peek ends on Alt release too
   } else if(k==="m"||k==="M"){ mHeld=false; }
-  else if(k==="p"||k==="P"){ pHeld=false; }
+  else if(k==="p"||k==="P"){ pHeld=false; requestFrame(); }  // repaint to clear the live box
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1832,11 +1854,11 @@ function buildToolbar() {
   // ── Rotate/flip ──
   tb.appendChild(row(
     lbl("rotate"),
-    btn("↺ CCW","Rotate CCW",()=>{rotateOverlays(false);S.rotation=((S.rotation-1)%4+4)%4;requestFrame();refresh();}),
-    btn("↻ CW", "Rotate CW", ()=>{rotateOverlays(true); S.rotation=(S.rotation+1)%4;        requestFrame();refresh();}),
+    btn("↺ CCW","Rotate CCW",()=>{const or=S.rotation,fh=S.flipH,fv=S.flipV;S.rotation=((S.rotation-1)%4+4)%4;retransformOverlays(or,fh,fv);requestFrame();refresh();}),
+    btn("↻ CW", "Rotate CW", ()=>{const or=S.rotation,fh=S.flipH,fv=S.flipV;S.rotation=(S.rotation+1)%4;        retransformOverlays(or,fh,fv);requestFrame();refresh();}),
   ));
-  const flipH2=btn("⇄H","Flip horizontal",()=>{flipOverlays(true); S.flipH=!S.flipH;requestFrame();refresh();});
-  const flipV2=btn("⇅V","Flip vertical",  ()=>{flipOverlays(false);S.flipV=!S.flipV;requestFrame();refresh();});
+  const flipH2=btn("⇄H","Flip horizontal",()=>{const or=S.rotation,fh=S.flipH,fv=S.flipV;S.flipH=!S.flipH;retransformOverlays(or,fh,fv);requestFrame();refresh();});
+  const flipV2=btn("⇅V","Flip vertical",  ()=>{const or=S.rotation,fh=S.flipH,fv=S.flipV;S.flipV=!S.flipV;retransformOverlays(or,fh,fv);requestFrame();refresh();});
   tb.appendChild(row(lbl("flip"),flipH2,flipV2));
 
   // ── WB (hold W + drag to apply, stacked; Alt+W peeks; Shift+W / this resets) ──
@@ -2155,13 +2177,13 @@ ovCanvas.addEventListener("wheel",e=>{
 window.addEventListener("keydown",onKeyDown);
 window.addEventListener("keyup",onKeyUp);
 // Never leave a tool key "stuck" if we miss its keyup (focus lost mid-hold).
-window.addEventListener("blur",()=>{ wHeld=mHeld=pHeld=false; if(S.wbPeek){S.wbPeek=false;requestFrame();} });
+window.addEventListener("blur",()=>{ wHeld=mHeld=pHeld=false; S.wbPeek=false; requestFrame(); });
 
 // Resize
 window.addEventListener("resize",()=>{sizeCanvases();requestFrame();});
 
 // Test hooks
-window.__pxlpeep = { S, env, PXLPEEP_VERSION, computeWBColor, computeWBGrey, recalcScale, recomputeMinMax, loadImage, zoomToFit, zoomTo1to1, pixelReadout, mappedSuffix, save, copyToClipboard, reloadImage, applyWBFromBox, revertWB, escClear, addMeasure, addLatched, openCalibration, unitSuffix, rotateOverlays, flipOverlays, dispDims, cursorLines };
+window.__pxlpeep = { S, env, PXLPEEP_VERSION, computeWBColor, computeWBGrey, recalcScale, recomputeMinMax, loadImage, zoomToFit, zoomTo1to1, pixelReadout, mappedSuffix, save, copyToClipboard, reloadImage, applyWBFromBox, revertWB, escClear, addMeasure, addLatched, openCalibration, unitSuffix, retransformOverlays, dispToRaw, rawToDisp, cursorLines };
 
 // Initial frame
 requestFrame();

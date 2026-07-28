@@ -76,8 +76,10 @@ P is held** pins the current readout as a *frozen snapshot* and keeps a fresh on
 can drop several without releasing. **Shift+P** pops the newest pin. (Space — which used to toggle a
 persistent live box — is retired; the live box is now just "hold P".) Live and pinned boxes share
 one renderer, so the marker is the same `+`/square that transitions at 16× — a pin dropped at low
-zoom shows `+`, zoom in and it becomes the square. Pins freeze their readout at drop time (so they
-survive rotation/flip and don't re-sample). This is ROADMAP #11.
+zoom shows `+`, zoom in and it becomes the square. A pin freezes only the pixel **value** at drop
+time; its X/Y/R/θ and unit annotation recompute live, so it tracks the ruler and calibration. (The
+value is frozen because its display coords would mis-sample the raw texture after a rotation.) This
+is ROADMAP #11.
 
 ## User units / calibration (U)
 
@@ -97,9 +99,11 @@ fine granularity (pop one item from a given tool); Esc is the broom — so you c
 of measurements with one keystroke without nuking your white balance. When Esc reaches the WB group
 it clears the *box* only; the correction is reverted solely by Shift+W. Rotating or flipping the
 image **transforms** the overlays with it (measure endpoints, WB corners, latched points) so they
-stay pinned to content — the transform matches the shader's display→texture map (verified against
-it: a point's texture position is unchanged across a rotation), and the readout boxes are drawn
-axis-aligned so their text stays upright. The WB *correction* is unaffected.
+stay pinned to content. Each point **round-trips through raw texture coords** (old display → raw →
+new display) rather than a display-space rotation — which is exact for every rotation×flip combo. A
+bare display-space rotation would be wrong once a single flip is active, since the shader flips
+*before* it rotates and a 90° rotation doesn't commute with a single-axis mirror. Readout boxes are
+drawn axis-aligned so their text stays upright. The WB *correction* is unaffected.
 
 ## Cursor info box + position markers
 
