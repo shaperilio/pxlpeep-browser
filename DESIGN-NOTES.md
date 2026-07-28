@@ -65,13 +65,19 @@ box: **dx, dy** (signed), **L** (unsigned), **θ**. Signed dx/dy are why reversi
 180° — visible in the signs, cleaner than drawing a direction arrow. θ is math convention: 0° = east,
 CCW positive (up = +90°), range (−180°, 180°]. dx/dy stay in image-pixel coords (y-down), so a
 downward drag reads dy > 0 with a negative θ — the sign-flip pedagogy still holds on reversal.
-Measures **stack**; **Shift+M** pops the newest. Label anchors at the release endpoint.
+Measures **stack**; **Shift+M** pops the newest. The label box anchors in the line's *heading*
+direction (one of the four corners, by the sign of the screen-space delta) so it never sits on the
+segment behind the endpoint.
 
-## Latched cursor boxes (P)
+## Cursor boxes — the P inspect tool
 
-Hold **P** + click → drop a **frozen** cursor readout at that pixel (centre-snapped: the square
-marker + X/Y/R/θ/value box). **Space** stays the *live* following cursor box; **P** *latches* a
-fixed one. Stack; **Shift+P** pops the newest. This is ROADMAP #11.
+**Hold P** shows a live cursor readout that follows the mouse; **release P** hides it. **Click while
+P is held** pins the current readout as a *frozen snapshot* and keeps a fresh one following, so you
+can drop several without releasing. **Shift+P** pops the newest pin. (Space — which used to toggle a
+persistent live box — is retired; the live box is now just "hold P".) Live and pinned boxes share
+one renderer, so the marker is the same `+`/square that transitions at 16× — a pin dropped at low
+zoom shows `+`, zoom in and it becomes the square. Pins freeze their readout at drop time (so they
+survive rotation/flip and don't re-sample). This is ROADMAP #11.
 
 ## User units / calibration (U)
 
@@ -80,7 +86,8 @@ set them. **U** now calibrates off the most-recent measure line: a small in-app 
 `"<number> <unit>"`, unit is free text — "parsex" welcome) sets `unitPerPix = entered / L_px`. From
 then on every dimension — cursor box, info box, measure boxes, WB box — shows `value (value unit)`.
 It's a custom overlay input, not `window.prompt` (WebView2 blocks that), so one path serves both
-shells.
+shells. **Shift+U** cancels calibration, back to pixels only. A dedicated `calibrated` flag gates
+the dual display — *not* `unitPerPix===1`, which a legitimate 1-unit/px calibration would trip.
 
 ## Tool-scoped Esc
 
@@ -88,11 +95,11 @@ shells.
 tracked by a per-group sequence stamp; repeated Esc walks back tool-by-tool. **Shift+key** is the
 fine granularity (pop one item from a given tool); Esc is the broom — so you can wipe a botched set
 of measurements with one keystroke without nuking your white balance. When Esc reaches the WB group
-it clears the *box* only; the correction is reverted solely by Shift+W. Rotating **or flipping** the
-image clears the spatial overlays (they live in display space, and imgToView applies neither
-rotation nor flip, so a kept overlay would detach from the pixels it describes) but keeps the WB
-correction. A future refinement could *transform* the overlays through the rotation/flip instead of
-clearing them.
+it clears the *box* only; the correction is reverted solely by Shift+W. Rotating or flipping the
+image **transforms** the overlays with it (measure endpoints, WB corners, latched points) so they
+stay pinned to content — the transform matches the shader's display→texture map (verified against
+it: a point's texture position is unchanged across a rotation), and the readout boxes are drawn
+axis-aligned so their text stays upright. The WB *correction* is unaffected.
 
 ## Cursor info box + position markers
 

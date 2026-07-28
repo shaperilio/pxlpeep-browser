@@ -78,7 +78,6 @@ const S = {
 
   // overlays
   showInfo: true,
-  showCursor: false,
   showRulers: true,
   showGrid: false,
   showColorbar: true,
@@ -897,7 +896,7 @@ function drawAll(ctx, ow, oh) {
   drawMeasures(ctx, lw, lh_);
   drawLatched(ctx, lw, lh_);
   if (S.showInfo)     drawInfoBox(ctx, lw, lh_);
-  if (S.showCursor)   drawCursorBox(ctx, lw, lh_);
+  if (pHeld)          drawCursorBox(ctx, lw, lh_);   // live cursor box = hold P
   if (S.showHelp)     drawHelp(ctx, lw, lh_);
   ctx.restore();
 }
@@ -1006,57 +1005,11 @@ function drawInfoBox(ctx, ow, oh) {
 // meaningless — so we snap to whole pixels (the pixel center) instead.
 const CURSOR_MARKER_ZOOM = 16; // zoomFactor at/above which we snap + mark (C++ markerZoomLevel)
 
+// Live cursor box (shown while P is held): the marker + readout follow the cursor.
 function drawCursorBox(ctx, ow, oh) {
   if (!S.image) return;
-  let [ix,iy]=viewToImg(S.cursorX,S.cursorY);
-  const lineH=lh(ctx);
-  let refX, refY;
-
-  if (Math.round(S.zoomFactor*100) >= CURSOR_MARKER_ZOOM*100) {
-    // Snap to the CENTER of the pixel under the cursor (whole pixels only), so the
-    // marker sits on a real pixel and the value shown is that pixel's value.
-    ix=Math.floor(ix)+0.5;
-    iy=Math.floor(iy)+0.5;
-    [refX,refY]=imgToView(ix,iy);
-    refX=Math.round(refX); refY=Math.round(refY);
-    // Nested squares black/white/black so the marker reads over any pixel value.
-    const third=3, half=9, size=18;
-    ctx.fillStyle="#000"; ctx.fillRect(refX-half,          refY-half,          size,          size);
-    ctx.fillStyle="#fff"; ctx.fillRect(refX-half+third,    refY-half+third,    size-2*third,  size-2*third);
-    ctx.fillStyle="#000"; ctx.fillRect(refX-half+2*third,  refY-half+2*third,  size-4*third,  size-4*third);
-  } else {
-    // Below the snap zoom, mark the exact cursor position with a black+white "+" (same
-    // extent as the square marker) and anchor the info box to it — so a screenshot shows
-    // which point the readout refers to instead of a box dangling in space.
-    // +0.5 so the odd-width strokes land on pixel centres and stay crisp (black
-    // flanks + white core), the way the ruler/grid lines do.
-    refX=Math.round(S.cursorX)+0.5; refY=Math.round(S.cursorY)+0.5;
-    const half=9;
-    const plus=(style,w)=>{
-      ctx.strokeStyle=style; ctx.lineWidth=w;
-      ctx.beginPath();
-      ctx.moveTo(refX-half,refY); ctx.lineTo(refX+half,refY);
-      ctx.moveTo(refX,refY-half); ctx.lineTo(refX,refY+half);
-      ctx.stroke();
-    };
-    plus("#000",3); plus("#fff",1);
-  }
-
-  const rd=pixelReadout(ix,iy);
-  const lines=[
-    `X = ${rd.curX.toFixed(1)}${unitSuffix(rd.curX)}, Y = ${rd.curY.toFixed(1)}${unitSuffix(rd.curY)}`,
-    `R = ${rd.R.toFixed(1)}${unitSuffix(rd.R)}, θ = ${rd.theta.toFixed(1)}°`,
-  ];
-  if (rd.val!==null) lines.push(rd.val);
-
-  const maxW=Math.max(...lines.map(l=>tw(ctx,l)));
-  const bw=maxW+MAR*2, bh=lineH*lines.length+MAR*2;
-  let bx=refX+10, by=refY+10;
-  bx=Math.max(0,Math.min(ow-bw,bx));
-  by=Math.max(0,Math.min(oh-bh,by));
-  blackBox(ctx,bx,by,bw,bh);
-  ctx.fillStyle="#fff";
-  lines.forEach((l,i)=>ctx.fillText(l, bx+bw-tw(ctx,l)-MAR, by+MAR+lineH*(i+1)-2));
+  const [ix,iy]=viewToImg(S.cursorX,S.cursorY);
+  drawMarkerAndBox(ctx, ix, iy, cursorLines(pixelReadout(ix,iy)), ow, oh);
 }
 
 // ── Rulers ────────────────────────────────────────────────────────────────────
@@ -1219,18 +1172,20 @@ function unitSuffix(px){
 
 // A right-aligned black readout box anchored near (ax,ay), clamped on-canvas. Shared by
 // the cursor box, latched boxes, measures, and the WB box so their look always agrees.
-function drawLabelBox(ctx, ax, ay, lines, ow, oh){
+function drawLabelBox(ctx, ax, ay, lines, ow, oh, dirX, dirY){
+  dirX = dirX===undefined ? 1 : dirX;   // +1: box extends right of ax, -1: to the left
+  dirY = dirY===undefined ? 1 : dirY;   // +1: below ay,               -1: above
   const lineH=lh(ctx);
   const maxW=Math.max(...lines.map(l=>tw(ctx,l)));
   const bw=maxW+MAR*2, bh=lineH*lines.length+MAR*2;
-  const bx=Math.max(0,Math.min(ow-bw,ax)), by=Math.max(0,Math.min(oh-bh,ay));
+  const ax2 = dirX>=0 ? ax : ax-bw, ay2 = dirY>=0 ? ay : ay-bh;
+  const bx=Math.max(0,Math.min(ow-bw,ax2)), by=Math.max(0,Math.min(oh-bh,ay2));
   blackBox(ctx,bx,by,bw,bh);
   ctx.fillStyle="#fff";
   lines.forEach((l,i)=>ctx.fillText(l, bx+bw-tw(ctx,l)-MAR, by+MAR+lineH*(i+1)-2));
 }
 
-// Nested black/white/black pixel-centre marker (18px) — the cursor snap marker and
-// every latched box use it.
+// Nested black/white/black pixel-centre marker (18px).
 function drawPixelMarker(ctx, refX, refY){
   const third=3, half=9, size=18;
   ctx.fillStyle="#000"; ctx.fillRect(refX-half,         refY-half,         size,         size);
@@ -1238,22 +1193,48 @@ function drawPixelMarker(ctx, refX, refY){
   ctx.fillStyle="#000"; ctx.fillRect(refX-half+2*third, refY-half+2*third, size-4*third,  size-4*third);
 }
 
-// A frozen cursor readout at pixel-centre (ix,iy): marker + X/Y/R/θ/value box.
-function drawReadoutAt(ctx, ix, iy, ow, oh){
-  const [vx,vy]=imgToView(ix,iy);
-  const refX=Math.round(vx), refY=Math.round(vy);
-  drawPixelMarker(ctx, refX, refY);
-  const rd=pixelReadout(ix,iy);
+// Black-flanked-white "+" marker (same 18px extent); +0.5 keeps the odd-width strokes crisp.
+function drawPlusMarker(ctx, refX, refY){
+  const half=9;
+  const plus=(style,w)=>{
+    ctx.strokeStyle=style; ctx.lineWidth=w;
+    ctx.beginPath();
+    ctx.moveTo(refX-half,refY); ctx.lineTo(refX+half,refY);
+    ctx.moveTo(refX,refY-half); ctx.lineTo(refX,refY+half);
+    ctx.stroke();
+  };
+  plus("#000",3); plus("#fff",1);
+}
+
+// The X/Y/R/θ/value readout lines for a pixelReadout result.
+function cursorLines(rd){
   const lines=[
     `X = ${rd.curX.toFixed(1)}${unitSuffix(rd.curX)}, Y = ${rd.curY.toFixed(1)}${unitSuffix(rd.curY)}`,
     `R = ${rd.R.toFixed(1)}${unitSuffix(rd.R)}, θ = ${rd.theta.toFixed(1)}°`,
   ];
   if(rd.val!==null) lines.push(rd.val);
+  return lines;
+}
+
+// Marker + readout box at display point (ix,iy). Square (with pixel-centre snap) at/above
+// CURSOR_MARKER_ZOOM, "+" below. Shared by the live cursor box and every latched box.
+function drawMarkerAndBox(ctx, ix, iy, lines, ow, oh){
+  let refX, refY;
+  if (Math.round(S.zoomFactor*100) >= CURSOR_MARKER_ZOOM*100) {
+    const cx=Math.floor(ix)+0.5, cy=Math.floor(iy)+0.5;
+    [refX,refY]=imgToView(cx,cy); refX=Math.round(refX); refY=Math.round(refY);
+    drawPixelMarker(ctx, refX, refY);
+  } else {
+    [refX,refY]=imgToView(ix,iy); refX=Math.round(refX)+0.5; refY=Math.round(refY)+0.5;
+    drawPlusMarker(ctx, refX, refY);
+  }
   drawLabelBox(ctx, refX+10, refY+10, lines, ow, oh);
 }
 
+// Latched boxes store display coords + a FROZEN readout (snapshot at latch time, so it
+// survives rotation/flip); the marker still picks +/square by current zoom.
 function drawLatched(ctx, ow, oh){
-  for(const p of S.latched) drawReadoutAt(ctx, p.ix, p.iy, ow, oh);
+  for(const p of S.latched) drawMarkerAndBox(ctx, p.x, p.y, p.lines, ow, oh);
 }
 
 // WB box: corner-snapped rectangle + a w×h label (no diagonal — meaningless for WB).
@@ -1283,7 +1264,9 @@ function drawOneMeasure(ctx, m, ow, oh){
     `L = ${L.toFixed(1)}${unitSuffix(L)}`,
     `θ = ${theta.toFixed(1)}°`,
   ];
-  drawLabelBox(ctx, sx2+10, sy2+10, lines, ow, oh);
+  // Anchor the box in the line's heading direction so it never sits on the segment.
+  const sdx = sx2>=sx1 ? 1 : -1, sdy = sy2>=sy1 ? 1 : -1;
+  drawLabelBox(ctx, sx2+10*sdx, sy2+10*sdy, lines, ow, oh, sdx, sdy);
 }
 
 function drawMeasures(ctx, ow, oh){
@@ -1302,7 +1285,28 @@ function applyWBFromBox(){
   S.wbSeq=++S._seq;
 }
 function addMeasure(m){ S.measures.push(m); S.measSeq=++S._seq; }
-function addLatched(ix,iy){ S.latched.push({ix,iy}); S.latSeq=++S._seq; }
+function addLatched(ix,iy){ S.latched.push({x:ix, y:iy, lines:cursorLines(pixelReadout(ix,iy))}); S.latSeq=++S._seq; }
+
+// Rotate/flip transform the overlays with the image so they stay pinned to content (the
+// readout boxes are drawn axis-aligned, so text stays upright). Display-pixel dims for
+// the current rotation:
+function dispDims(){ return (S.rotation===1||S.rotation===3) ? [S.image.height, S.image.width] : [S.image.width, S.image.height]; }
+function transformOverlays(fn){
+  for(const m of S.measures){ [m.x1,m.y1]=fn(m.x1,m.y1); [m.x2,m.y2]=fn(m.x2,m.y2); }
+  for(const p of S.latched){ [p.x,p.y]=fn(p.x,p.y); }
+  if(S.wbBox){ const b=S.wbBox; [b.x1,b.y1]=fn(b.x1,b.y1); [b.x2,b.y2]=fn(b.x2,b.y2); }
+}
+// Call BEFORE changing S.rotation (uses the current dims). cw = the +1 / ↻ direction.
+function rotateOverlays(cw){
+  if(!S.image) return;
+  const [dW,dH]=dispDims();
+  transformOverlays(cw ? (x,y)=>[dH-y, x] : (x,y)=>[y, dW-x]);
+}
+function flipOverlays(horizontal){
+  if(!S.image) return;
+  const [dW,dH]=dispDims();
+  transformOverlays(horizontal ? (x,y)=>[dW-x, y] : (x,y)=>[x, dH-y]);
+}
 // Esc clears the whole group of the most-recently-used tool (highest seq); repeated Esc
 // walks back tool-by-tool. Shift+key still pops a single item from a given tool.
 function escClear(){
@@ -1379,8 +1383,8 @@ const HELP_LINES=[
   "Shift+W    reset white balance",
   "M drag     measure line",
   "Shift+M    undo last measure",
-  "U          set units (last measure)",
-  "P click    drop info box",
+  "U / Shift+U set / clear units",
+  "P (hold)   info box; click pins",
   "Shift+P    undo last box",
   "Esc        clear newest tool group",
   "","── Transform ──",
@@ -1390,9 +1394,8 @@ const HELP_LINES=[
   "Y             flip Y origin",
   "0             zero/one indexing",
   "","── Overlays ──",
-  "I    info box   Space cursor box",
-  "C    colorbar   X     rulers",
-  "d    pixel grid",
+  "I    info box    C    colorbar",
+  "X    rulers      d    pixel grid",
   "","── Save / copy ──",
   "Ctrl+S          save original",
   "Ctrl+Alt+S      save mapped",
@@ -1464,13 +1467,13 @@ function onKeyDown(e) {
       S.channels=shift?CHAN_B:(S.channels^CHAN_B)||CHAN_B; break;
 
     case "a":case "A":
-      S.rotation=((S.rotation+(shift?-1:1))%4+4)%4;
-      S.wbBox=null; S.measures=[]; S.latched=[]; break;   // spatial overlays don't survive rotation
-    case "l":case "L": S.flipH=!S.flipH; S.wbBox=null; S.measures=[]; S.latched=[]; break;
-    case "t":case "T": S.flipV=!S.flipV; S.wbBox=null; S.measures=[]; S.latched=[]; break;
+      rotateOverlays(!shift);                              // transform overlays with the image
+      S.rotation=((S.rotation+(shift?-1:1))%4+4)%4; break;
+    case "l":case "L": flipOverlays(true);  S.flipH=!S.flipH; break;
+    case "t":case "T": flipOverlays(false); S.flipV=!S.flipV; break;
 
     case "i":case "I": S.showInfo=!S.showInfo; break;
-    case " ":          S.showCursor=!S.showCursor; break;
+    case " ":          break;   // retired — the live cursor box is now "hold P"
     case "c":case "C":
       if(ctrl&&shift){copyToClipboard("screenshot");break;}
       if(ctrl)       {copyToClipboard("mapped");    break;}
@@ -1499,6 +1502,7 @@ function onKeyDown(e) {
       break;
     case "u":case "U":
       if(ctrl){handled=false;break;}
+      if(shift){ S.calibrated=false; S.unitPerPix=1; S.unitName="units"; break; }  // cancel calibration
       if(!e.repeat) openCalibration();                      // set units off last measure
       break;
     case "Escape":
@@ -1828,11 +1832,11 @@ function buildToolbar() {
   // ── Rotate/flip ──
   tb.appendChild(row(
     lbl("rotate"),
-    btn("↺ CCW","Rotate CCW",()=>{S.rotation=((S.rotation-1)%4+4)%4;S.wbBox=null;S.measures=[];S.latched=[];requestFrame();refresh();}),
-    btn("↻ CW", "Rotate CW", ()=>{S.rotation=(S.rotation+1)%4;          S.wbBox=null;S.measures=[];S.latched=[];requestFrame();refresh();}),
+    btn("↺ CCW","Rotate CCW",()=>{rotateOverlays(false);S.rotation=((S.rotation-1)%4+4)%4;requestFrame();refresh();}),
+    btn("↻ CW", "Rotate CW", ()=>{rotateOverlays(true); S.rotation=(S.rotation+1)%4;        requestFrame();refresh();}),
   ));
-  const flipH2=btn("⇄H","Flip horizontal",()=>{S.flipH=!S.flipH;S.wbBox=null;S.measures=[];S.latched=[];requestFrame();refresh();});
-  const flipV2=btn("⇅V","Flip vertical",  ()=>{S.flipV=!S.flipV;S.wbBox=null;S.measures=[];S.latched=[];requestFrame();refresh();});
+  const flipH2=btn("⇄H","Flip horizontal",()=>{flipOverlays(true); S.flipH=!S.flipH;requestFrame();refresh();});
+  const flipV2=btn("⇅V","Flip vertical",  ()=>{flipOverlays(false);S.flipV=!S.flipV;requestFrame();refresh();});
   tb.appendChild(row(lbl("flip"),flipH2,flipV2));
 
   // ── WB (hold W + drag to apply, stacked; Alt+W peeks; Shift+W / this resets) ──
@@ -1845,9 +1849,8 @@ function buildToolbar() {
   const togInfo=btn("info","Toggle info box",()=>{S.showInfo=!S.showInfo;requestFrame();refresh();});
   const togRul =btn("rulers","Toggle rulers",()=>{S.showRulers=!S.showRulers;requestFrame();refresh();});
   const togCbar=btn("colorbar","Toggle colorbar",()=>{S.showColorbar=!S.showColorbar;requestFrame();refresh();});
-  const togCur =btn("cursor","Toggle cursor box",()=>{S.showCursor=!S.showCursor;requestFrame();refresh();});
   const togGrid=btn("grid","Toggle pixel grid",()=>{S.showGrid=!S.showGrid;requestFrame();refresh();});
-  tb.appendChild(row(lbl("show"),togInfo,togRul,togCbar,togCur,togGrid));
+  tb.appendChild(row(lbl("show"),togInfo,togRul,togCbar,togGrid));
 
   // ── EXIF ──
   const exifDiv=document.createElement("div");
@@ -1895,7 +1898,7 @@ function buildToolbar() {
     chB._setActive(!!(S.channels&CHAN_B));
     flipH2._setActive(S.flipH); flipV2._setActive(S.flipV);
     togInfo._setActive(S.showInfo); togRul._setActive(S.showRulers);
-    togCbar._setActive(S.showColorbar); togCur._setActive(S.showCursor);
+    togCbar._setActive(S.showColorbar);
     togGrid._setActive(S.showGrid);
     jpegCb.checked=S.forceJpeg;
     if(S.exif){
@@ -2098,8 +2101,8 @@ ovCanvas.addEventListener("pointerdown",e=>{
   } else if(mHeld && img) {                // measure: centre-snapped line
     const x=snapCentre(ix,img.width), y=snapCentre(iy,img.height);
     measureDrag={x1:x,y1:y,x2:x,y2:y};
-  } else if(pHeld && img) {                // latch a cursor box at the clicked pixel
-    addLatched(snapCentre(ix,img.width), snapCentre(iy,img.height));
+  } else if(pHeld && img) {                // latch a frozen cursor box at the click point
+    addLatched(ix, iy);
   } else {                                 // pan
     panDrag={sx:e.clientX,sy:e.clientY,px:S.panX,py:S.panY};
     ovCanvas.style.cursor="grabbing";
@@ -2158,7 +2161,7 @@ window.addEventListener("blur",()=>{ wHeld=mHeld=pHeld=false; if(S.wbPeek){S.wbP
 window.addEventListener("resize",()=>{sizeCanvases();requestFrame();});
 
 // Test hooks
-window.__pxlpeep = { S, env, PXLPEEP_VERSION, computeWBColor, computeWBGrey, recalcScale, recomputeMinMax, loadImage, zoomToFit, zoomTo1to1, pixelReadout, mappedSuffix, save, copyToClipboard, reloadImage, applyWBFromBox, revertWB, escClear, addMeasure, addLatched, openCalibration, unitSuffix };
+window.__pxlpeep = { S, env, PXLPEEP_VERSION, computeWBColor, computeWBGrey, recalcScale, recomputeMinMax, loadImage, zoomToFit, zoomTo1to1, pixelReadout, mappedSuffix, save, copyToClipboard, reloadImage, applyWBFromBox, revertWB, escClear, addMeasure, addLatched, openCalibration, unitSuffix, rotateOverlays, flipOverlays, dispDims, cursorLines };
 
 // Initial frame
 requestFrame();
