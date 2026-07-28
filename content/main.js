@@ -966,7 +966,7 @@ function drawInfoBox(ctx, ow, oh) {
 
   const rot=["","  90°","  180°","  270°"][S.rotation];
   const fl=S.flipH&&S.flipV?" H+V flip":S.flipH?" H flip":S.flipV?" V flip":"";
-  lines.push(`W=${img.width} H=${img.height}  ${S.zoomFactor.toFixed(2)}×${rot}${fl}`);
+  lines.push(`W=${img.width}${unitSuffix(img.width)} H=${img.height}${unitSuffix(img.height)}  ${S.zoomFactor.toFixed(2)}×${rot}${fl}`);
 
   if (S.exif) {
     const e=S.exif;
@@ -1050,12 +1050,19 @@ function drawRulers(ctx, ow, oh) {
     if(xImg>dispW) break;
   }
 
-  // Vertical
-  let yImg=0.5;
+  // Vertical — anchor the tick grid at the Y-origin edge (top when unflipped, bottom when
+  // flipped) so the origin tick is always placed, then march across the visible band.
+  const dn = !S.yFlip;
+  let yImg = dn ? 0.5 : dispH-0.5;
   while(true) {
     let [,yDraw]=imgToView(0,yImg);
-    while(yDraw<CORNER) { const old=yDraw; while(yDraw===old){yImg+=1;[,yDraw]=imgToView(0,yImg);} }
-    if(yDraw>oh-CORNER||yImg>dispH) break;
+    while(dn ? yDraw<CORNER : yDraw>oh-CORNER) {
+      const old=yDraw;
+      while(yDraw===old){ yImg+=dn?1:-1; if(yImg<0.5||yImg>dispH-0.5) break; [,yDraw]=imgToView(0,yImg); }
+      if(yImg<0.5||yImg>dispH-0.5) break;
+    }
+    if(yImg<0.5 || yImg>dispH-0.5) break;
+    if(dn ? yDraw>oh-CORNER : yDraw<CORNER) break;
 
     ctx.lineWidth=3; ctx.strokeStyle="#000";
     ctx.beginPath();ctx.moveTo(0,yDraw);ctx.lineTo(TICK,yDraw);ctx.stroke();
@@ -1072,9 +1079,9 @@ function drawRulers(ctx, ow, oh) {
     ctx.fillStyle="#fff"; ctx.fillText(label,2,yDraw+2+lineH-2); ctx.fillText(label,ow-lw2-1,yDraw+2+lineH-2);
 
     const oldY=yImg;
-    yImg=Math.floor(viewToImg(0,yDraw+MIN_SPACE)[1])+0.5;
-    if(yImg<=oldY) yImg=oldY+1;
-    if(yImg>dispH) break;
+    yImg=Math.floor(viewToImg(0,yDraw+(dn?MIN_SPACE:-MIN_SPACE))[1])+0.5;
+    if(dn ? yImg<=oldY : yImg>=oldY) yImg=oldY+(dn?1:-1);
+    if(yImg<0.5 || yImg>dispH-0.5) break;
   }
 }
 
@@ -1260,8 +1267,9 @@ function drawOneMeasure(ctx, m, ow, oh){
   const [sx1,sy1]=imgToView(m.x1,m.y1), [sx2,sy2]=imgToView(m.x2,m.y2);
   ctx.strokeStyle="#000"; ctx.lineWidth=3; ctx.beginPath();ctx.moveTo(sx1,sy1);ctx.lineTo(sx2,sy2);ctx.stroke();
   ctx.strokeStyle="#fff"; ctx.lineWidth=1; ctx.beginPath();ctx.moveTo(sx1,sy1);ctx.lineTo(sx2,sy2);ctx.stroke();
-  const dx=m.x2-m.x1, dy=m.y2-m.y1, L=Math.hypot(dx,dy);
-  const theta=Math.atan2(-dy,dx)*180/Math.PI;
+  const dx=m.x2-m.x1, dyRaw=m.y2-m.y1, L=Math.hypot(dx,dyRaw);
+  const theta=Math.atan2(-dyRaw,dx)*180/Math.PI;   // visual angle — yFlip-independent
+  const dy=S.yFlip ? -dyRaw : dyRaw;                // dy in the DISPLAYED Y convention
   const sgn=v=>(v>=0?"+":"")+Math.round(v);
   const lines=[
     `dx = ${sgn(dx)}${unitSuffix(dx)}`,
@@ -1269,9 +1277,13 @@ function drawOneMeasure(ctx, m, ow, oh){
     `L = ${L.toFixed(1)}${unitSuffix(L)}`,
     `θ = ${theta.toFixed(1)}°`,
   ];
-  // Anchor the box in the line's heading direction so it never sits on the segment.
-  const sdx = sx2>=sx1 ? 1 : -1, sdy = sy2>=sy1 ? 1 : -1;
-  drawLabelBox(ctx, sx2+10*sdx, sy2+10*sdy, lines, ow, oh, sdx, sdy);
+  // Anchor the box in the line's heading direction, with hysteresis (Schmitt trigger) so a
+  // near-horizontal/vertical line doesn't flip the corner on tiny mouse jitter. The chosen
+  // sign is remembered on the measure (and live drag) and only flips past a ±HYST band.
+  const HYST=15, ddx=sx2-sx1, ddy=sy2-sy1;
+  m.cxSign = ddx>HYST ? 1 : ddx<-HYST ? -1 : (m.cxSign ?? (ddx>=0?1:-1));
+  m.cySign = ddy>HYST ? 1 : ddy<-HYST ? -1 : (m.cySign ?? (ddy>=0?1:-1));
+  drawLabelBox(ctx, sx2+10*m.cxSign, sy2+10*m.cySign, lines, ow, oh, m.cxSign, m.cySign);
 }
 
 function drawMeasures(ctx, ow, oh){
@@ -2157,7 +2169,7 @@ ovCanvas.addEventListener("pointerup",e=>{
     else S.wbBox=null;                     // zero-size: discard
   } else if(measureDrag) {
     const m=measureDrag;
-    if(Math.abs(m.x2-m.x1)>=1 || Math.abs(m.y2-m.y1)>=1) addMeasure({x1:m.x1,y1:m.y1,x2:m.x2,y2:m.y2});
+    if(Math.abs(m.x2-m.x1)>=1 || Math.abs(m.y2-m.y1)>=1) addMeasure({...m});   // carry cxSign/cySign
   }
   endDrag(); refreshToolbar(); requestFrame();
 });

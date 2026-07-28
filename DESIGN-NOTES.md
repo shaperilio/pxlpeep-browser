@@ -63,11 +63,18 @@ replacing it — gains are computed from the **corrected** values (raw × curren
 Hold **M** + left-drag → a **line** (two centre-snapped endpoints), labelled with a cursor-box-style
 box: **dx, dy** (signed), **L** (unsigned), **θ**. Signed dx/dy are why reversing the drag flips θ by
 180° — visible in the signs, cleaner than drawing a direction arrow. θ is math convention: 0° = east,
-CCW positive (up = +90°), range (−180°, 180°]. dx/dy stay in image-pixel coords (y-down), so a
-downward drag reads dy > 0 with a negative θ — the sign-flip pedagogy still holds on reversal.
-Measures **stack**; **Shift+M** pops the newest. The label box anchors in the line's *heading*
-direction (one of the four corners, by the sign of the screen-space delta) so it never sits on the
-segment behind the endpoint.
+CCW positive (up = +90°), range (−180°, 180°]. **dy** is reported in the *displayed* Y convention, so
+it flips sign with the `Y`-origin toggle; θ stays the visual angle (yFlip-independent) and `L` is a
+magnitude. Measures **stack**; **Shift+M** pops the newest. The label box anchors in the line's
+*heading* direction (which of four corners, by the sign of the screen-space delta) so it never sits
+on the segment — with **hysteresis** (a ±15px Schmitt band, the chosen corner remembered on the
+measure) so a near-horizontal/vertical line doesn't jitter the box side-to-side on tiny mouse
+movement.
+
+(Related: the `Y`-origin toggle now also **reanchors the vertical ruler ticks** to the flipped
+origin — it marches the tick grid from the bottom edge up — so the "0" tick is placed instead of
+just relabelling a top-anchored grid. And the top-right info box's `W×H` line shows units like every
+other dimension once calibrated.)
 
 ## Cursor boxes — the P inspect tool
 
