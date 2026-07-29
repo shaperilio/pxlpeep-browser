@@ -58,6 +58,14 @@ replacing it — gains are computed from the **corrected** values (raw × curren
   reference.
 - **Esc** clears overlays.
 
+**Readout is unaffected by WB (deliberate).** Applying a white balance changes the *display* but not
+the numbers in the info/cursor boxes — those always report **raw file values**. WB sits alongside the
+palette and transfer function as a *display* transform; the pixel readout is *original data*. That
+split is the whole point of an inspector, so it's the same reason the readout ignores the palette and
+transfer function too. **Alt+W** is the A/B for what WB does to the display; the numbers stay ground
+truth. (Considered showing WB-corrected values or both raw→corrected — rejected to keep the readout
+unambiguously the source data.)
+
 ## Measure tool
 
 Hold **M** + left-drag → a **line** (two centre-snapped endpoints), labelled with a cursor-box-style
@@ -73,8 +81,12 @@ movement.
 
 (Related: the `Y`-origin toggle now also **reanchors the vertical ruler ticks** to the flipped
 origin — it marches the tick grid from the bottom edge up — so the "0" tick is placed instead of
-just relabelling a top-anchored grid. And the top-right info box's `W×H` line shows units like every
-other dimension once calibrated.)
+just relabelling a top-anchored grid. The flipped label rule: with the origin at the bottom, the
+**bottom-most pixel reads 0** (0-based) or **1** (1-based) — i.e. the coordinate reflects across the
+pixel-centre range `[0, dispH-1]` and *then* the 0/1-based offset is added, so the `0` key still
+switches conventions in both origins. The ruler ticks and the cursor/info-box readout share this one
+formula so they can't disagree. And the top-right info box's `W×H` line shows units like every other
+dimension once calibrated.)
 
 ## Cursor boxes — the P inspect tool
 
@@ -83,10 +95,12 @@ P is held** pins the current readout as a *frozen snapshot* and keeps a fresh on
 can drop several without releasing. **Shift+P** pops the newest pin. (Space — which used to toggle a
 persistent live box — is retired; the live box is now just "hold P".) Live and pinned boxes share
 one renderer, so the marker is the same `+`/square that transitions at 16× — a pin dropped at low
-zoom shows `+`, zoom in and it becomes the square. A pin freezes only the pixel **value** at drop
-time; its X/Y/R/θ and unit annotation recompute live, so it tracks the ruler and calibration. (The
-value is frozen because its display coords would mis-sample the raw texture after a rotation.) This
-is ROADMAP #11.
+zoom shows `+`, zoom in and it becomes the square. A pin freezes only the **raw pixel sample** at
+drop time; its X/Y/R/θ, unit annotation, **and channel on/off gating** recompute live, so it tracks
+the ruler, calibration, and channel toggles — hide a channel and a pinned box's value flips to `OFF`
+too. Only the raw sample is frozen (its display coords would mis-sample the raw texture after a
+rotation); everything *derived* from it — coordinates, units, which channels are shown — is recomputed
+each frame by `formatVal`/`pixelReadout`. This is ROADMAP #11.
 
 ## User units / calibration (U)
 
@@ -114,14 +128,26 @@ drawn axis-aligned so their text stays upright. The WB *correction* is unaffecte
 
 ## Cursor info box + position markers
 
-- Above a zoom threshold, snap the marker to the **centre** of the pixel under the cursor (a pixel
-  is identified by its centre, not a corner-of-four) and anchor the readout to it. The point is
-  *screenshot legibility*: the OS cursor isn't captured, so without an on-image marker you can't
-  tell which pixel the numbers describe.
-- Below the threshold, drop a **`+`** at the exact point instead, so a screenshot still has a
-  reference rather than a box dangling in space. Same extent as the square anchor.
+- **The readout ALWAYS snaps to the pixel centre, at every zoom.** X/Y names the exact pixel the
+  value is sampled from, and the marker sits on that same pixel — the two can never disagree. Showing
+  `X=45.7` while the value is pixel 45 is misleading: the value is discrete, so its coordinate must be
+  too. A pixel is identified by its centre, not a corner-of-four.
+- The zoom threshold (`CURSOR_MARKER_ZOOM`, 16×) picks only the marker **glyph** — a nested **square**
+  at/above it, a **`+`** below — never *whether* it snaps. Both glyphs sit at the pixel centre. The
+  on-image marker exists for *screenshot legibility*: the OS cursor isn't captured, so without it you
+  can't tell which pixel the numbers describe.
 - Both markers are **black-flanked-white**, so they read over any pixel value regardless of contrast.
-- The info box shows the **full source path**, not just the basename.
+- The info box shows the **full source path**, not just the basename. On the desktop shell the
+  launcher canonicalises `argv[1]` to an absolute path (stripping Windows' `\\?\` verbatim prefix),
+  so the box shows the full path even when opened with a relative one.
+
+## Non-image background
+
+The letterbox around the image (anywhere the display UV falls outside the texture) is **Qt::darkGreen
+(#008000)** — the same colour the C++ `QGraphicsView` used as its background brush. Pure identity/
+fidelity: a distinctive non-black surround says "pxlpeep has this image" at a glance and matches what
+long-time desktop users expect. It's a constant in the fragment shader (and the GL clear colour), so
+it costs nothing.
 
 ## Pixel grid
 
@@ -130,3 +156,36 @@ in. Black-flanked-white (visible over any value, like the rulers). **Auto-hidden
 threshold where the lines would collapse into mush — set to **64×**, the first zoom at which the
 rulers already show one tick per pixel, so the grid appears exactly when per-pixel structure is what
 you're inspecting. Toggle: **`d`** key + a `grid` toolbar button.
+
+## Toolbar
+
+- **Tooltips** lead with the **hotkey in brackets**, then *what it does* — `[Ctrl+1] Zoom to fit` —
+  so the key is scannable at the front. Keys are sourced from the same keydown handler that owns them,
+  so the two can't drift. Conditional controls say so (dip only bites on a log/parabolic transfer
+  function; the grid only shows above 64×). A tooltip that just restates the label is worse than none.
+- **State must be visible, never a guess.** A button whose *label changes* to name the current mode is
+  ambiguous — is that the current state or what a click does? So mode selectors show all options and
+  highlight the active one:
+  - *Binary modes* → a **segmented pair**, active one white (`_setActive`): `0-based`/`1-based`,
+    `fit`/`full`. Clicking one selects it and deselects the other.
+  - *On/off toggles* → a single button, white = engaged (`flip Y`, the overlay toggles).
+  - *Many-option cyclers* → **`‹ current-name ›`**: prev/next chevrons around a centred label (like
+    `dip`'s `−` / value / `+`), so the middle is unmistakably the selection and the chevrons the action.
+    This replaced the old single cycle-button that showed the name and stepped on click.
+- **`fit` vs `full` scale.** `full` was called `user` — a lie, since the range isn't user-settable.
+  `full` = the fixed `0…max`; a *real* custom range is ROADMAP #13 (mirrors the `U` units input).
+- **Help ↔ toolbar grouping is deliberately NOT 1:1.** The keyboard-help overlay groups commands into
+  **sections**; the toolbar splits some of those into **per-item rows** (a row label is sometimes a
+  section like `channels` = R/G/B, sometimes a single item like `palette`). Trying to force identical
+  structure fails because the two surfaces have different granularity. They share the same *section
+  names and membership* (Mapping, Rotate/flip, Axes, …); the toolbar is just finer. The help lines are
+  **generated** from `(key, description)` pairs with a fixed-width key column, so the columns always
+  align in the monospace overlay font instead of relying on hand-counted spaces. As the reference
+  grows, `drawHelp` **shrinks the font+pitch uniformly to fit the window height** (scaling the line
+  *pitch* directly, not re-measuring `lh` — which carries a constant per-line term that wouldn't
+  shrink), so the bottom sections never clip off short windows.
+- **Collapse is stationary.** The title bar itself is the toggle (not a separate corner button that
+  swapped in a differently-shaped float): the *same* header — "pxlpeep" + an arrow, one constant
+  colour — stays put in both states, only the body below and the arrow glyph (▲/▼) change, and the box
+  shrinks to the title bar when collapsed. So a click collapses and a click *in the same spot*
+  re-expands, without the title jumping. Anchored to the fixed top-left corner (clear of the rulers).

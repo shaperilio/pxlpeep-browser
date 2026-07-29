@@ -369,7 +369,7 @@ void main(){
   vec2 fragPx=vec2(vUV.x,(1.-vUV.y))*uVP;
   vec2 dispSz=(uRot==1||uRot==3)?uSz.yx:uSz.xy;
   vec2 dispUV=(fragPx-uPan)/(uZoom*dispSz);
-  if(dispUV.x<0.||dispUV.x>1.||dispUV.y<0.||dispUV.y>1.){fragColor=vec4(0.1,0.1,0.1,1.);return;}
+  if(dispUV.x<0.||dispUV.x>1.||dispUV.y<0.||dispUV.y>1.){fragColor=vec4(0.,0.50196078,0.,1.);return;}// non-image bg = Qt::darkGreen (#008000), from the C++ pxlpeep
   vec2 uv=xform(dispUV);
   vec4 tx=texture(uImg,uv);
   vec2 pc=uv*uSz;
@@ -502,7 +502,7 @@ class Renderer {
     if (!this.imgTex) return;
     const gl = this.gl;
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-    gl.clearColor(0.1, 0.1, 0.1, 1);
+    gl.clearColor(0.0, 0.50196078, 0.0, 1); // Qt::darkGreen (#008000), like the C++ pxlpeep
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(this.prog);
     gl.bindVertexArray(this.vao);
@@ -912,36 +912,49 @@ function blackBox(ctx, x,y,w,h) {
   ctx.fillStyle="rgba(0,0,0,0.85)"; ctx.fillRect(x,y,w,h);
 }
 
+// Format a raw pixel sample applying the CURRENT channel on/off state, so a pinned cursor
+// box reflects a channel toggle live (shows OFF) even though its raw value is frozen at pin
+// time. raw: number (grey — no gating) | [r,g,b] | null (off-image → no value line).
+function formatVal(raw){
+  if(raw==null) return null;
+  if(typeof raw==="number") return String(raw);
+  const g=(flag,v)=>(S.channels&flag)?String(v):"OFF";
+  return `${g(CHAN_R,raw[0])}, ${g(CHAN_G,raw[1])}, ${g(CHAN_B,raw[2])}`;
+}
+
 // Shared cursor readout — display X/Y, polar R/θ about the image center, and the
 // pixel value(s) at (ix,iy). Used by BOTH the top-right info box and the cursor
 // box so their numbers always agree. Returns val=null when (ix,iy) is off-image.
+// `raw` is the ungated sample (frozen by latched pins; formatVal re-gates it live).
 function pixelReadout(ix, iy) {
   const img=S.image;
   const dispW=(S.rotation===1||S.rotation===3)?img.height:img.width;
   const dispH=(S.rotation===1||S.rotation===3)?img.width:img.height;
-  let curX=ix+(S.zeroIdx?0:1)-0.5;
-  let curY=iy+(S.zeroIdx?0:1)-0.5;
-  if(S.yFlip) curY=dispH-curY;
-  const rX=curX-(S.zeroIdx?0:1)-dispW/2+0.5;
-  const rY=curY-(S.zeroIdx?0:1)-dispH/2+0.5;
+  // 0-based, pixel-centre display coords (pixel k's centre → k). Y-origin flip reflects the
+  // Y coordinate across the pixel-centre range [0, dispH-1], so the BOTTOM pixel reads 0.
+  let cx0=ix-0.5, cy0=iy-0.5;
+  if(S.yFlip) cy0=(dispH-1)-cy0;
+  // R/θ about the image centre, in the (possibly flipped) display frame.
+  const rX=cx0-(dispW-1)/2, rY=cy0-(dispH-1)/2;
   const R=Math.sqrt(rX*rX+rY*rY);
   const theta=Math.atan2(rY,rX)*180/Math.PI;
-  let val=null;
+  // Displayed coordinate labels honour the 0/1-based toggle.
+  const off=S.zeroIdx?0:1;
+  const curX=cx0+off, curY=cy0+off;
+  // Raw (ungated) pixel sample; channel on/off is applied by formatVal at display time so a
+  // frozen (latched) sample still reflects live channel toggles.
+  let raw=null;
   const px=Math.floor(ix), py=Math.floor(iy);
   if(px>=0&&px<img.width&&py>=0&&py<img.height) {
     const maxV=(1<<img.bpp)-1;
     if(img.numChannels===1) {
-      val=String(Math.round(img.data[py*img.width+px]*maxV));
+      raw=Math.round(img.data[py*img.width+px]*maxV);
     } else {
       const i=(py*img.width+px)*3;
-      const rv=Math.round(img.data[i]*maxV), gv=Math.round(img.data[i+1]*maxV), bv=Math.round(img.data[i+2]*maxV);
-      const R2=(S.channels&CHAN_R)?String(rv):"OFF";
-      const G2=(S.channels&CHAN_G)?String(gv):"OFF";
-      const B2=(S.channels&CHAN_B)?String(bv):"OFF";
-      val=`${R2}, ${G2}, ${B2}`;
+      raw=[Math.round(img.data[i]*maxV), Math.round(img.data[i+1]*maxV), Math.round(img.data[i+2]*maxV)];
     }
   }
-  return {curX, curY, R, theta, val};
+  return {curX, curY, R, theta, val:formatVal(raw), raw};
 }
 
 // ── Info box ──────────────────────────────────────────────────────────────────
@@ -1009,7 +1022,7 @@ const CURSOR_MARKER_ZOOM = 16; // zoomFactor at/above which we snap + mark (C++ 
 function drawCursorBox(ctx, ow, oh) {
   if (!S.image) return;
   const [ix,iy]=viewToImg(S.cursorX,S.cursorY);
-  drawMarkerAndBox(ctx, ix, iy, cursorLines(pixelReadout(ix,iy)), ow, oh);
+  drawMarkerAndBox(ctx, ix, iy, ow, oh);
 }
 
 // ── Rulers ────────────────────────────────────────────────────────────────────
@@ -1072,7 +1085,7 @@ function drawRulers(ctx, ow, oh) {
     ctx.beginPath();ctx.moveTo(ow,yDraw);ctx.lineTo(ow-TICK,yDraw);ctx.stroke();
 
     let yCoord=Math.floor(yImg)+(S.zeroIdx?0:1);
-    if(S.yFlip) yCoord=dispH-Math.floor(yImg);
+    if(S.yFlip) yCoord=(dispH-1-Math.floor(yImg))+(S.zeroIdx?0:1);
     const label=String(yCoord);
     const lw2=tw(ctx,label);
     ctx.fillStyle="#000"; ctx.fillRect(1,yDraw+2,lw2+2,lineH); ctx.fillRect(ow-lw2-2,yDraw+2,lw2+2,lineH);
@@ -1216,36 +1229,42 @@ function drawPlusMarker(ctx, refX, refY){
 // The X/Y/R/θ/value readout lines for a pixelReadout result.
 function cursorLines(rd){
   const lines=[
-    `X = ${rd.curX.toFixed(1)}${unitSuffix(rd.curX)}, Y = ${rd.curY.toFixed(1)}${unitSuffix(rd.curY)}`,
+    // X/Y are whole numbers (the readout always snaps to a pixel centre), so no decimal.
+    `X = ${rd.curX.toFixed(0)}${unitSuffix(rd.curX)}, Y = ${rd.curY.toFixed(0)}${unitSuffix(rd.curY)}`,
     `R = ${rd.R.toFixed(1)}${unitSuffix(rd.R)}, θ = ${rd.theta.toFixed(1)}°`,
   ];
   if(rd.val!==null) lines.push(rd.val);
   return lines;
 }
 
-// Marker + readout box at display point (ix,iy). Square (with pixel-centre snap) at/above
-// CURSOR_MARKER_ZOOM, "+" below. Shared by the live cursor box and every latched box.
-function drawMarkerAndBox(ctx, ix, iy, lines, ow, oh){
-  let refX, refY;
+// Marker + readout box at display point (ix,iy). The readout ALWAYS snaps to the pixel centre
+// (floor+0.5) regardless of zoom, so the shown X/Y names the exact pixel the value is sampled
+// from — and the marker sits on that same pixel, never misleading. The zoom threshold only
+// picks the marker GLYPH: a nested square at/above CURSOR_MARKER_ZOOM, a "+" below. Shared by
+// the live cursor box and every latched box; valOverride supplies a latched box's frozen value.
+function drawMarkerAndBox(ctx, ix, iy, ow, oh, valOverride){
+  const rx=Math.floor(ix)+0.5, ry=Math.floor(iy)+0.5;
+  let [refX,refY]=imgToView(rx,ry);
   if (Math.round(S.zoomFactor*100) >= CURSOR_MARKER_ZOOM*100) {
-    const cx=Math.floor(ix)+0.5, cy=Math.floor(iy)+0.5;
-    [refX,refY]=imgToView(cx,cy); refX=Math.round(refX); refY=Math.round(refY);
+    refX=Math.round(refX); refY=Math.round(refY);
     drawPixelMarker(ctx, refX, refY);
   } else {
-    [refX,refY]=imgToView(ix,iy); refX=Math.round(refX)+0.5; refY=Math.round(refY)+0.5;
+    refX=Math.round(refX)+0.5; refY=Math.round(refY)+0.5;
     drawPlusMarker(ctx, refX, refY);
   }
-  drawLabelBox(ctx, refX+10, refY+10, lines, ow, oh);
+  const rd=pixelReadout(rx,ry);
+  if(valOverride!==undefined) rd.val=valOverride;
+  drawLabelBox(ctx, refX+10, refY+10, cursorLines(rd), ow, oh);
 }
 
 // Latched boxes recompute X/Y/R/θ + units LIVE from their (rotation-transformed) display
-// coords — so they track the ruler and calibration — but the pixel VALUE is frozen at pin
-// time (the display coords would mis-sample the raw texture after a rotation). Marker is
-// +/square by current zoom.
+// coords — so they track the ruler and calibration. Only the RAW pixel sample is frozen at
+// pin time (the display coords would mis-sample the raw texture after a rotation); channel
+// on/off is re-applied live by formatVal, so hiding a channel updates a pin's value too.
+// Marker is +/square by current zoom.
 function drawLatched(ctx, ow, oh){
   for(const p of S.latched){
-    const rd=pixelReadout(p.x, p.y); rd.val=p.val;
-    drawMarkerAndBox(ctx, p.x, p.y, cursorLines(rd), ow, oh);
+    drawMarkerAndBox(ctx, p.x, p.y, ow, oh, formatVal(p.raw));
   }
 }
 
@@ -1302,7 +1321,7 @@ function applyWBFromBox(){
   S.wbSeq=++S._seq;
 }
 function addMeasure(m){ S.measures.push(m); S.measSeq=++S._seq; }
-function addLatched(ix,iy){ S.latched.push({x:ix, y:iy, val:pixelReadout(ix,iy).val}); S.latSeq=++S._seq; }
+function addLatched(ix,iy){ S.latched.push({x:ix, y:iy, raw:pixelReadout(ix,iy).raw}); S.latSeq=++S._seq; }
 
 // Rotate/flip transform the overlays with the image so they stay pinned to content (the
 // readout boxes are drawn axis-aligned, so text stays upright). Display-pixel dims for
@@ -1393,61 +1412,90 @@ function openCalibration(){
 }
 
 // ── Help ──────────────────────────────────────────────────────────────────────
-const HELP_LINES=[
-  "pxlpeep "+PXLPEEP_VERSION,"",
-  "── Mouse ──",
-  "Left drag              pan",
-  "Wheel                  zoom",
-  "","── Zoom ──",
-  "Ctrl+1            zoom to fit",
-  "Ctrl+2               zoom 1:1",
-  "Ctrl+3               center",
-  "Ctrl+4-7        image corners",
-  "","── Palette ──",
-  "V / Shift+V     cycle colormaps",
-  "F / Shift+F     cycle functions",
-  "= / -       dip factor ±",
-  "S           toggle fit/user scale",
-  "","── Channels ──",
-  "R          toggle red  (Shift: solo)",
-  "G          toggle green(Shift: solo)",
-  "B          toggle blue (Shift: solo)",
-  "","── Tools (hold key + drag) ──",
-  "W drag     white balance (stacks)",
-  "Alt+W      peek pre-WB (hold)",
-  "Shift+W    reset white balance",
-  "M drag     measure line",
-  "Shift+M    undo last measure",
-  "U / Shift+U set / clear units",
-  "P (hold)   info box; click pins",
-  "Shift+P    undo last box",
-  "Esc        clear newest tool group",
-  "","── Transform ──",
-  "A / Shift+A   rotate CW / CCW",
-  "L             flip horizontal",
-  "T             flip vertical",
-  "Y             flip Y origin",
-  "0             zero/one indexing",
-  "","── Overlays ──",
-  "I    info box    C    colorbar",
-  "X    rulers      d    pixel grid",
-  "","── Save / copy ──",
-  "Ctrl+S          save original",
-  "Ctrl+Alt+S      save mapped",
-  "Ctrl+Shift+S    save screenshot",
-  "Ctrl+C          copy mapped",
-  "Ctrl+Shift+C    copy screenshot",
-  "","Any key shows this help",
+// Sections mirror the toolbar's row groups (help groups into sections; the toolbar splits
+// some sections into per-item rows — e.g. Mapping is one help section but four toolbar rows).
+// Lines are GENERATED from (key, description) pairs with a fixed-width key column, so the two
+// columns always line up in the monospace overlay font (no hand-counted spacing to drift).
+const HELP_SECTIONS = [
+  ["Mouse", [["Left drag","pan"],["Wheel","zoom"]]],
+  ["Zoom", [["Ctrl+1","zoom to fit"],["Ctrl+2","zoom 1:1"]]],
+  ["Position", [["Ctrl+3","center"],["Ctrl+4–7","image corners"]]],
+  ["Image", [["F5","reload image"]]],
+  ["Mapping", [
+    ["V / Shift+V","cycle palette"],
+    ["F / Shift+F","cycle function"],
+    ["= / -","dip factor ±"],
+    ["S","fit / full scale"],
+  ]],
+  ["Channels", [
+    ["R","red   (Shift: solo)"],
+    ["G","green (Shift: solo)"],
+    ["B","blue  (Shift: solo)"],
+  ]],
+  ["Rotate / flip", [
+    ["A / Shift+A","rotate CW / CCW"],
+    ["L","flip horizontal"],
+    ["T","flip vertical"],
+  ]],
+  ["Axes", [["Y","flip Y origin"],["0","0 / 1 indexing"]]],
+  ["Tools (hold key + drag)", [
+    ["W drag","white balance (stacks)"],
+    ["Alt+W","peek pre-WB (hold)"],
+    ["Shift+W","reset white balance"],
+    ["M drag","measure line"],
+    ["Shift+M","undo last measure"],
+    ["U / Shift+U","set / clear units"],
+    ["P (hold)","info box; click pins"],
+    ["Shift+P","undo last box"],
+    ["Esc","clear newest tool group"],
+  ]],
+  ["Overlays", [
+    ["I","info box"],
+    ["X","rulers"],
+    ["C","colorbar"],
+    ["d","pixel grid"],
+  ]],
+  ["Save", [
+    ["Ctrl+S","save original"],
+    ["Ctrl+Alt+S","save mapped"],
+    ["Ctrl+Shift+S","save screenshot"],
+    ["J","force JPEG output"],
+  ]],
+  ["Copy", [
+    ["Ctrl+C","copy mapped"],
+    ["Ctrl+Shift+C","copy screenshot"],
+  ]],
 ];
+const HELP_LINES = (() => {
+  const KEYW = 14;   // key column width; longest key ("Ctrl+Shift+S") is 12
+  const out = ["pxlpeep " + PXLPEEP_VERSION, ""];
+  for (const [title, items] of HELP_SECTIONS) {
+    out.push("── " + title + " ──");
+    for (const [key, desc] of items) out.push(key.padEnd(KEYW) + desc);
+    out.push("");
+  }
+  out.push("Any key shows this help");
+  return out;
+})();
 
 function drawHelp(ctx, ow, oh) {
-  const lineH=lh(ctx);
+  // Shrink the font uniformly if the reference wouldn't otherwise fit the window height, so the
+  // whole thing — including the Save/Copy shortcuts at the bottom — stays on-screen on short
+  // windows (and as the menu keeps growing). On tall windows this is a no-op (11px as before).
+  const avail=oh-2*PAD-2*MAR;
+  let lineH=lh(ctx);
+  if(lineH*HELP_LINES.length>avail){
+    const scale=avail/(lineH*HELP_LINES.length);
+    lineH*=scale;                                                  // scale the line PITCH to fit exactly
+    ctx.font=`${Math.max(5,11*scale)}px "Courier New",monospace`;  // shrink glyphs to match the pitch
+  }
   const maxW=Math.max(...HELP_LINES.map(l=>tw(ctx,l)));
   const bw=maxW+MAR*2, bh=lineH*HELP_LINES.length+MAR*2;
   const bx=ow-PAD-bw, by=PAD;
   blackBox(ctx,bx,by,bw,bh);
   ctx.fillStyle="#fff";
   HELP_LINES.forEach((l,i)=>ctx.fillText(l,bx+MAR,by+MAR+lineH*(i+1)-2));
+  ctx.font=FONT;   // restore for any later overlay draw this frame
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1517,6 +1565,7 @@ function onKeyDown(e) {
 
     case "y":case "Y": S.yFlip=!S.yFlip; break;
     case "0":          S.zeroIdx=!S.zeroIdx; break;
+    case "j":case "J": S.forceJpeg=!S.forceJpeg; break;   // toggle Force-JPEG (toolbar checkbox is the only indicator)
 
     case "w":case "W":
       if(ctrl){handled=false;break;}
@@ -1740,7 +1789,7 @@ function buildToolbar() {
   const tb = document.createElement("div");
   tb.id="pxlpeep-toolbar";
   Object.assign(tb.style,{
-    position:"fixed",top:"8px",left:"8px",zIndex:"2147483647",
+    position:"fixed",top:"20px",left:"40px",zIndex:"2147483647", // clear of the top/left rulers
     background:"rgba(20,20,20,0.93)",border:"1px solid #444",
     borderRadius:"8px",padding:"8px 10px",display:"flex",
     flexDirection:"column",gap:"5px",fontFamily:"monospace",
@@ -1778,155 +1827,189 @@ function buildToolbar() {
     return b;
   };
 
-  const cycleBtn=(label,getVal,getNames,onChange)=>{
-    const b=document.createElement("button");
-    Object.assign(b.style,{
-      flex:"1",padding:"2px 6px",borderRadius:"4px",cursor:"pointer",
-      fontSize:"11px",fontFamily:"monospace",border:"1px solid #555",
-      background:"#333",color:"#ddd",textAlign:"center",
-    });
-    b.addEventListener("click",e=>{
-      const dir=e.shiftKey?1:-1;
-      onChange(dir); refresh();
-    });
-    b._refresh=()=>{ b.textContent=getNames()[getVal()]; };
-    return b;
-  };
-
-  // ── Header ──
+  // ── Header — the whole title bar IS the collapse toggle. It stays put (same spot, same
+  // color) across states, so a click collapses and a click in the same place re-expands;
+  // only the body below and the arrow glyph change. "pxlpeep" + arrow sit together at the
+  // left in both states, anchored to the box's fixed top-left corner. ──
   const header=document.createElement("div");
-  Object.assign(header.style,{display:"flex",justifyContent:"space-between",alignItems:"center"});
+  Object.assign(header.style,{display:"flex",alignItems:"center",gap:"6px",cursor:"pointer",userSelect:"none"});
+  header.title="Collapse / expand the toolbar";
   const title=document.createElement("span");
   title.textContent="pxlpeep"; title.style.fontWeight="bold"; title.style.color="#aaa";
-  const collapseBtn=btn("▲","Collapse",()=>{
-    tb.style.display="none";
-    floatBtn.style.display="block";
-  });
-  header.appendChild(title); header.appendChild(collapseBtn);
-  tb.appendChild(header);
+  const collapseArrow=document.createElement("span");
+  collapseArrow.textContent="▲"; Object.assign(collapseArrow.style,{color:"#aaa",fontSize:"10px"});
+  header.appendChild(title); header.appendChild(collapseArrow);
+  tb.append(header);
+
+  // Body — everything below the header, hidden as one unit when collapsed (the box then
+  // shrinks to just the title bar).
+  const body=document.createElement("div");
+  Object.assign(body.style,{display:"flex",flexDirection:"column",gap:"5px"});
+  tb.append(body);
 
   // ── Zoom ──
   const zoomInfo=document.createElement("span");
   zoomInfo.style.color="#aaa";
   const zoomRow=row(
     lbl("zoom"),
-    btn("fit","Zoom to fit",()=>{zoomToFit();refresh();}),
-    btn("1:1","Zoom 1:1",()=>{zoomTo1to1();refresh();}),
+    btn("fit","[Ctrl+1] Zoom to fit the whole image in the window",()=>{zoomToFit();refresh();}),
+    btn("1:1","[Ctrl+2] Zoom to 1:1 — one screen pixel per image pixel",()=>{zoomTo1to1();refresh();}),
     zoomInfo
   );
-  tb.appendChild(zoomRow);
+  body.appendChild(zoomRow);
 
-  // ── Palette ──
-  const palBtn=cycleBtn("palette",()=>S.palette,()=>PALETTE_NAMES,dir=>{
-    S.palette=((S.palette+dir)%6+6)%6;
-  });
-  tb.appendChild(row(lbl("palette"),palBtn));
-  tb.appendChild(document.createElement("div")).style.cssText="font-size:9px;color:#666;padding-left:52px";
+  // ── Position presets (mirror of Ctrl+3–7) ──
+  body.appendChild(row(
+    lbl("position"),
+    btn("⊙","[Ctrl+3] Center the image in the window",()=>{positionImage("center");refresh();}),
+    btn("◤","[Ctrl+4] Anchor the image to the top-left",()=>{positionImage("topLeft");refresh();}),
+    btn("◥","[Ctrl+5] Anchor the image to the top-right",()=>{positionImage("topRight");refresh();}),
+    btn("◣","[Ctrl+6] Anchor the image to the bottom-left",()=>{positionImage("bottomLeft");refresh();}),
+    btn("◢","[Ctrl+7] Anchor the image to the bottom-right",()=>{positionImage("bottomRight");refresh();}),
+  ));
+
+  // ── Image (reload; grows to open/paste later) ──
+  body.appendChild(row(
+    lbl("image"),
+    btn("⟳ reload","[F5] Reload the image — re-fetch and fit to window",()=>{reloadImage();refresh();}),
+  ));
+
+  // ── Palette (prev ‹ name › next, like dip — label is the current selection, chevrons act) ──
+  const palName=document.createElement("span");
+  palName.style.cssText="flex:1;text-align:center;";
+  body.appendChild(row(
+    lbl("palette"),
+    btn("‹","[V] Previous color palette / false-color LUT",()=>{S.palette=((S.palette-1)%6+6)%6;refresh();}),
+    palName,
+    btn("›","[Shift+V] Next color palette / false-color LUT",()=>{S.palette=((S.palette+1)%6+6)%6;refresh();}),
+  ));
 
   // ── Function ──
-  const fnBtn=cycleBtn("fn",()=>S.imgFn,()=>FN_NAMES,dir=>{
-    S.imgFn=((S.imgFn+dir)%5+5)%5; recalcScale();
-  });
-  tb.appendChild(row(lbl("fn"),fnBtn));
+  const fnName=document.createElement("span");
+  fnName.style.cssText="flex:1;text-align:center;";
+  body.appendChild(row(
+    lbl("function"),
+    btn("‹","[F] Previous transfer function",()=>{S.imgFn=((S.imgFn-1)%5+5)%5;recalcScale();refresh();}),
+    fnName,
+    btn("›","[Shift+F] Next transfer function",()=>{S.imgFn=((S.imgFn+1)%5+5)%5;recalcScale();refresh();}),
+  ));
 
   // ── Dip factor ──
   const dipVal=document.createElement("span");
   dipVal.style.cssText="flex:1;text-align:center;";
   const dipRow=row(
     lbl("dip"),
-    btn("−","",()=>{S.dipFactor/=1.25;recalcScale();refresh();}),
+    btn("−","[−] Weaken the dip factor — strength of the log/parabolic transfer curve (no effect unless fn is log/parabolic)",()=>{S.dipFactor/=1.25;recalcScale();refresh();}),
     dipVal,
-    btn("+","",()=>{S.dipFactor*=1.25;recalcScale();refresh();}),
+    btn("+","[+] Strengthen the dip factor — strength of the log/parabolic transfer curve (no effect unless fn is log/parabolic)",()=>{S.dipFactor*=1.25;recalcScale();refresh();}),
   );
-  tb.appendChild(dipRow);
+  body.appendChild(dipRow);
 
-  // ── Scale ──
+  // ── Scale (segmented: fit vs full range; "full" = 0..max, the honest name for what was
+  //    called "user" — see ROADMAP for a real user-settable range) ──
   const scaleInfo=document.createElement("span");
   scaleInfo.style.cssText="font-size:10px;color:#888;";
-  const scaleBtn=btn("","Toggle fit/user",()=>{
-    if(S.scaling===Scaling.Fit){S.scaling=Scaling.User;S.userMin=0;S.userMax=S.image?(1<<S.image.bpp)-1:255;}
-    else S.scaling=Scaling.Fit;
-    recalcScale(); refresh();
+  const scaleFitBtn =btn("fit", "[S] Fit the display range to the data (auto min/max)",()=>{
+    S.scaling=Scaling.Fit; recalcScale(); refresh();
   });
-  tb.appendChild(row(lbl("scale"),scaleBtn,scaleInfo));
+  const scaleFullBtn=btn("full","[S] Use the full value range (0…max)",()=>{
+    S.scaling=Scaling.User; S.userMin=0; S.userMax=S.image?(1<<S.image.bpp)-1:255; recalcScale(); refresh();
+  });
+  body.appendChild(row(lbl("scale"),scaleFitBtn,scaleFullBtn,scaleInfo));
 
   // ── Channels ──
-  const chR=btn("R","Toggle red (Shift: solo)",e=>{
+  const chR=btn("R","[R / Shift+R] Toggle the red channel (Shift solos)",e=>{
     S.channels=e.shiftKey?CHAN_R:(S.channels^CHAN_R)||CHAN_R; requestFrame(); refresh();
   },{color:"#f88"});
-  const chG=btn("G","Toggle green (Shift: solo)",e=>{
+  const chG=btn("G","[G / Shift+G] Toggle the green channel (Shift solos)",e=>{
     S.channels=e.shiftKey?CHAN_G:(S.channels^CHAN_G)||CHAN_G; requestFrame(); refresh();
   },{color:"#8f8"});
-  const chB=btn("B","Toggle blue (Shift: solo)",e=>{
+  const chB=btn("B","[B / Shift+B] Toggle the blue channel (Shift solos)",e=>{
     S.channels=e.shiftKey?CHAN_B:(S.channels^CHAN_B)||CHAN_B; requestFrame(); refresh();
   },{color:"#88f"});
-  const chRow=row(lbl("ch"),chR,chG,chB);
-  tb.appendChild(chRow);
+  const chRow=row(lbl("channels"),chR,chG,chB);
+  body.appendChild(chRow);
 
   // ── Rotate/flip ──
-  tb.appendChild(row(
+  body.appendChild(row(
     lbl("rotate"),
-    btn("↺ CCW","Rotate CCW",()=>{const or=S.rotation,fh=S.flipH,fv=S.flipV;S.rotation=((S.rotation-1)%4+4)%4;retransformOverlays(or,fh,fv);requestFrame();refresh();}),
-    btn("↻ CW", "Rotate CW", ()=>{const or=S.rotation,fh=S.flipH,fv=S.flipV;S.rotation=(S.rotation+1)%4;        retransformOverlays(or,fh,fv);requestFrame();refresh();}),
+    btn("↺ CCW","[Shift+A] Rotate the view 90° counter-clockwise",()=>{const or=S.rotation,fh=S.flipH,fv=S.flipV;S.rotation=((S.rotation-1)%4+4)%4;retransformOverlays(or,fh,fv);requestFrame();refresh();}),
+    btn("↻ CW", "[A] Rotate the view 90° clockwise", ()=>{const or=S.rotation,fh=S.flipH,fv=S.flipV;S.rotation=(S.rotation+1)%4;        retransformOverlays(or,fh,fv);requestFrame();refresh();}),
   ));
-  const flipH2=btn("⇄H","Flip horizontal",()=>{const or=S.rotation,fh=S.flipH,fv=S.flipV;S.flipH=!S.flipH;retransformOverlays(or,fh,fv);requestFrame();refresh();});
-  const flipV2=btn("⇅V","Flip vertical",  ()=>{const or=S.rotation,fh=S.flipH,fv=S.flipV;S.flipV=!S.flipV;retransformOverlays(or,fh,fv);requestFrame();refresh();});
-  tb.appendChild(row(lbl("flip"),flipH2,flipV2));
+  const flipH2=btn("⇄H","[L] Flip the view horizontally",()=>{const or=S.rotation,fh=S.flipH,fv=S.flipV;S.flipH=!S.flipH;retransformOverlays(or,fh,fv);requestFrame();refresh();});
+  const flipV2=btn("⇅V","[T] Flip the view vertically",  ()=>{const or=S.rotation,fh=S.flipH,fv=S.flipV;S.flipV=!S.flipV;retransformOverlays(or,fh,fv);requestFrame();refresh();});
+  body.appendChild(row(lbl("flip"),flipH2,flipV2));
 
-  // ── WB (hold W + drag to apply, stacked; Alt+W peeks; Shift+W / this resets) ──
-  tb.appendChild(row(
-    lbl("WB"),
-    btn("reset","Reset white balance (Shift+W)",()=>{revertWB();requestFrame();refresh();}),
-  ));
+  // (White balance is key/gesture-only for now — no toolbar row until ROADMAP #12 designs how
+  //  the tool family is surfaced. W+drag applies, Alt+W peeks, Shift+W resets.)
 
   // ── Overlays ──
-  const togInfo=btn("info","Toggle info box",()=>{S.showInfo=!S.showInfo;requestFrame();refresh();});
-  const togRul =btn("rulers","Toggle rulers",()=>{S.showRulers=!S.showRulers;requestFrame();refresh();});
-  const togCbar=btn("colorbar","Toggle colorbar",()=>{S.showColorbar=!S.showColorbar;requestFrame();refresh();});
-  const togGrid=btn("grid","Toggle pixel grid",()=>{S.showGrid=!S.showGrid;requestFrame();refresh();});
-  tb.appendChild(row(lbl("show"),togInfo,togRul,togCbar,togGrid));
+  const togInfo=btn("info","[I] Toggle the top-right info box",()=>{S.showInfo=!S.showInfo;requestFrame();refresh();});
+  const togRul =btn("rulers","[X] Toggle the rulers",()=>{S.showRulers=!S.showRulers;requestFrame();refresh();});
+  const togCbar=btn("colorbar","[C] Toggle the color bar",()=>{S.showColorbar=!S.showColorbar;requestFrame();refresh();});
+  const togGrid=btn("grid","[D] Toggle the pixel grid (only visible above 64× zoom)",()=>{S.showGrid=!S.showGrid;requestFrame();refresh();});
+  body.appendChild(row(lbl("overlays"),togInfo,togRul,togCbar,togGrid));
+
+  // ── Axes / coordinate conventions. flip Y is an on/off toggle (white = flipped); 0-based vs
+  //    1-based is a segmented pair (white = the active one) so the current mode is unambiguous. ──
+  const flipYBtn=btn("flip Y","[Y] Flip the Y origin to the bottom (math-style axes)",()=>{S.yFlip=!S.yFlip;requestFrame();refresh();});
+  const zero0Btn=btn("0-based","[0] Use 0-based pixel coordinates",()=>{S.zeroIdx=true; requestFrame();refresh();});
+  const zero1Btn=btn("1-based","[0] Use 1-based pixel coordinates",()=>{S.zeroIdx=false;requestFrame();refresh();});
+  body.appendChild(row(lbl("axes"),flipYBtn,zero0Btn,zero1Btn));
 
   // ── EXIF ──
   const exifDiv=document.createElement("div");
   Object.assign(exifDiv.style,{fontSize:"10px",color:"#888",borderTop:"1px solid #333",paddingTop:"4px"});
-  tb.appendChild(exifDiv);
+  body.appendChild(exifDiv);
 
   // ── Save ──
   const saveRow=document.createElement("div");
   Object.assign(saveRow.style,{display:"flex",gap:"4px",flexWrap:"wrap",borderTop:"1px solid #333",paddingTop:"4px"});
-  saveRow.appendChild(btn("💾 original","Save original image",()=>save("original")));
-  saveRow.appendChild(btn("💾 mapped","Save with palette applied",()=>save("mapped")));
-  saveRow.appendChild(btn("📷 screenshot","Save screenshot",()=>save("screenshot")));
-  tb.appendChild(saveRow);
+  saveRow.appendChild(btn("💾 original","[Ctrl+S] Save the original image file, unmodified",()=>save("original")));
+  saveRow.appendChild(btn("💾 mapped","[Ctrl+Alt+S] Save the image with the current palette + transfer function baked in",()=>save("mapped")));
+  saveRow.appendChild(btn("💾 screenshot","[Ctrl+Shift+S] Save a screenshot of the current view, overlays included",()=>save("screenshot")));
+  body.appendChild(saveRow);
+
+  // ── Copy to clipboard (mirror of Ctrl+C / Ctrl+Shift+C) ──
+  const copyRow=document.createElement("div");
+  Object.assign(copyRow.style,{display:"flex",gap:"4px",flexWrap:"wrap"});
+  copyRow.appendChild(btn("📋 mapped","[Ctrl+C] Copy the mapped image to the clipboard",()=>copyToClipboard("mapped")));
+  copyRow.appendChild(btn("📋 screenshot","[Ctrl+Shift+C] Copy a screenshot to the clipboard",()=>copyToClipboard("screenshot")));
+  body.appendChild(copyRow);
 
   const jpegRow=document.createElement("label");
+  jpegRow.title="[J] Force JPEG output for the original + mapped saves (otherwise the source format is kept)";
   Object.assign(jpegRow.style,{display:"flex",alignItems:"center",gap:"5px",paddingTop:"3px",fontSize:"11px",color:"#ccc",cursor:"pointer"});
   const jpegCb=document.createElement("input");
   jpegCb.type="checkbox"; jpegCb.checked=S.forceJpeg;
   jpegCb.addEventListener("change",()=>{S.forceJpeg=jpegCb.checked;});
   jpegRow.appendChild(jpegCb);
   jpegRow.appendChild(document.createTextNode("Force JPEG output (original + mapped)"));
-  tb.appendChild(jpegRow);
+  body.appendChild(jpegRow);
 
-  // ── Float button (collapsed state) ──
-  const floatBtn=document.createElement("button");
-  floatBtn.textContent="▼ pxlpeep";
-  Object.assign(floatBtn.style,{
-    position:"fixed",top:"8px",left:"8px",zIndex:"2147483647",
-    background:"rgba(20,20,20,0.93)",color:"#eee",border:"1px solid #444",
-    borderRadius:"6px",padding:"4px 8px",cursor:"pointer",fontFamily:"monospace",
-    fontSize:"11px",display:"none",
-  });
-  floatBtn.addEventListener("click",()=>{
-    tb.style.display="flex"; floatBtn.style.display="none";
-  });
+  // ── Collapse toggle — clicking the header folds the toolbar down to just its title bar
+  // ("pxlpeep" + a down arrow) and shrinks the box; clicking it again restores everything.
+  // Same element in both states, so nothing anchoring moves. ──
+  let collapsed=false;
+  const setCollapsed=v=>{
+    collapsed=v;
+    body.style.display=v?"none":"flex";
+    collapseArrow.textContent=v?"▼":"▲";   // ▼ = click to expand, ▲ = click to collapse
+    tb.style.minWidth=v?"0":"220px";        // shrink to fit "pxlpeep ▼" when collapsed
+  };
+  header.addEventListener("click",()=>setCollapsed(!collapsed));
 
   const refresh=()=>{
     zoomInfo.textContent=S.zoomFactor.toFixed(2)+"×";
-    palBtn._refresh(); fnBtn._refresh();
+    palName.textContent=PALETTE_NAMES[S.palette];
+    fnName.textContent=FN_NAMES[S.imgFn];
     dipVal.textContent=S.dipFactor.toFixed(3);
-    scaleBtn.textContent=S.scaling===Scaling.Fit?"fit":"user";
+    scaleFitBtn._setActive(S.scaling===Scaling.Fit);
+    scaleFullBtn._setActive(S.scaling===Scaling.User);
     scaleInfo.textContent=`${S.scaleMin.toFixed(0)}–${S.scaleMax.toFixed(0)}`;
+    flipYBtn._setActive(S.yFlip);
+    zero0Btn._setActive(S.zeroIdx);
+    zero1Btn._setActive(!S.zeroIdx);
     chR._setActive(!!(S.channels&CHAN_R));
     chG._setActive(!!(S.channels&CHAN_G));
     chB._setActive(!!(S.channels&CHAN_B));
@@ -1954,7 +2037,6 @@ function buildToolbar() {
   };
 
   document.body.appendChild(tb);
-  document.body.appendChild(floatBtn);
   return refresh;
 }
 

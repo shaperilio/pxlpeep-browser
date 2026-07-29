@@ -246,6 +246,40 @@ to that pixel (each latched box keeps its own marker + X/Y/R/θ/value); some key
 Cross-target (both the extension and the desktop app). `S` would need an array of latched readouts
 that `drawAll` renders alongside the live one.
 
+### 12. Surface the gesture tools in the toolbox — NEEDS DESIGN
+The toolbar mirrors nearly every keyboard command now (a discoverability surface for new users — the
+author lives in the keys and originally had no toolbar). The exceptions are the **gesture tools**,
+which have deliberately key-centric UX that doesn't reduce to a button:
+- **White balance** — hold `W` + drag a box (corner-snapped); `Alt+W` peek; `Shift+W` reset. (A lone
+  `reset` toolbar button was tried and removed — half a tool reads as a no-op until you've computed a
+  balance, so there's *no* WB toolbar affordance now until this whole family is designed.)
+- **Measure** — hold `M` + drag a line; `Shift+M` pops the last.
+- **Point / inspect (P)** — hold `P` for a live cursor box; click to pin; `Shift+P` pops the last.
+- **Calibrate (U)** — sets units off the last measure; `Shift+U` cancels.
+- **Esc** — clears the newest tool group.
+
+These need real interaction design, not a checkbox. Candidate shape: **"arm the tool" mode buttons**
+(click to enter WB/measure/inspect mode, then drag/click on the image; click again or Esc to exit) plus
+a one-line **hint** in the toolbar showing the active tool's gesture, so a mouse-only user can discover
+and drive them. Open questions: does a persistent "mode" fight the current hold-key model (which is
+modeless — the tool is active only while the key is down)? Should the toolbar buttons be momentary
+(press-and-hold analog) or sticky modes? How do peek (`Alt+W`) and undo (`Shift+*`) map to buttons?
+Decide before building; the goal is *every command reachable from both surfaces* without breaking the
+fast key-driven flow. (Context: this was split out of the key↔toolbar parallelism pass, which mirrored
+all the easy button-shaped commands — zoom/position/reload/copy/channels/rotate/flip/axes/save/JPEG —
+and left these for design.)
+
+### 13. User-settable display scale (a real "custom" range) — mirror the units-calibration flow
+The scale control is `fit` (auto min/max from the data) vs `full` (the fixed `0…max` range). "full"
+was called "user" — a misnomer, since there is currently **no way for the user to actually set the
+range**. Add a real user-settable range: a small in-app input (min + max) reached from the toolbar / a
+key, exactly like the `U` units-calibration overlay that sets `unitPerPix`. Typing values switches to a
+**custom** scale mode (the numbers drive `S.userMin`/`S.userMax` + `recalcScale`; colorbar and readout
+follow). Keep `fit` and `full` as presets; **custom** becomes a third state once a range is entered.
+Reuse the calibration overlay-input pattern (WebView2 blocks `window.prompt`, so one custom input
+serves both shells). (Split out of the toolbar pass, where the `user`→`full` rename fixed the
+misleading label but left the underlying gap.)
+
 ## Platforms
 
 ### Tauri desktop wrapper

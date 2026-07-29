@@ -5,7 +5,30 @@ pub fn run() {
   // The first CLI argument, if any, is the image to open — this is how an OS file
   // association / "Open with" hands us a file, which is the whole reason the desktop
   // build exists (an extension can't own file associations).
-  let image_path: Option<String> = std::env::args().nth(1);
+  //
+  // Canonicalize it to an absolute path so the info box always shows the full path,
+  // even when launched with a relative arg (`pxlpeep .\test_images\morris.jpg`). On
+  // Windows canonicalize() returns an extended-length "verbatim" path: `\\?\C:\...`
+  // for a drive path, or `\\?\UNC\server\share\...` for a network share. Strip the
+  // `\\?\` so the display is a plain `C:\...`, and rewrite the `\\?\UNC\` form back to
+  // a real `\\server\share\...` — a bare `\\?\` strip would leave a broken
+  // `UNC\server\...` that neither displays nor loads (convertFileSrc) correctly. If
+  // canonicalize fails (missing file, odd path), keep the raw arg untouched.
+  let image_path: Option<String> = std::env::args().nth(1).map(|p| {
+    std::fs::canonicalize(&p)
+      .ok()
+      .map(|abs| {
+        let s = abs.to_string_lossy().into_owned();
+        if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+          format!(r"\\{}", rest) // \\?\UNC\server\share -> \\server\share
+        } else if let Some(rest) = s.strip_prefix(r"\\?\") {
+          rest.to_string() //        \\?\C:\...          -> C:\...
+        } else {
+          s
+        }
+      })
+      .unwrap_or(p)
+  });
 
   tauri::Builder::default()
     .setup(move |app| {

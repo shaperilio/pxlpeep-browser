@@ -3,6 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <title>pxlpeep</title>
+    <!-- Empty favicon: stops the webview requesting /favicon.ico (Tauri logs it as a
+         missing asset). No tab chrome to show one anyway. -->
+    <link rel="icon" href="data:," />
   </head>
   <body>
     <script src="desktop.js"></script>
