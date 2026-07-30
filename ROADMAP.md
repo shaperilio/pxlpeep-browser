@@ -347,8 +347,11 @@ extensions). `content/main.js` is reused **verbatim** inside the Tauri shell —
   windows (`decorations: false`) so the pixels get the whole frame. Since that removes the drag
   handle, restore the C++ gesture: **right-button drag moves the window** (mousedown button 2 →
   Tauri `startDragging`, or manual reposition). The main window keeps normal chrome for now.
-- **Loupe icon** — replace Tauri's default icons with the pxlpeep loupe (`tauri icon` from a
-  high-res source; the C++ `loupe.icns` / `loupe.ico` / `loupe.iconset` are the source art).
+- ✅ **Loupe icon** (done): regenerated `src-tauri/icons/` from the in-repo
+  `loupe.iconset/icon_256x256.png` via `npx tauri icon` (256px is ample for the Windows `.ico`, which
+  tops out at 256; the mobile `android/`/`ios/` outputs and a stray `64x64.png` were pruned — this is
+  desktop-only). Window / taskbar / exe icon is now the loupe. (A ≥1024px source would sharpen the
+  macOS `.icns` and Store logos if we ever package those.)
 
 ## Test fixtures
 
@@ -360,7 +363,8 @@ extensions). `content/main.js` is reused **verbatim** inside the Tauri shell —
 
 ## Polish / store prep
 
-- Fix icon mismatch: the `48` slot in `manifest.json` points at `icon_64x64.png`.
+- ✅ Fixed the manifest icon-size mismatch: the `48` slot pointed at `icon_64x64.png`; the keys now
+  state each file's true size (`16 / 32 / 64 / 128`, plus `256`), so Chrome/Firefox scale honestly.
 - **Per-browser manifests at packaging time.** One MV3 manifest serves both browsers via a
   dual `background` key (`service_worker` for Chrome, `scripts` for Firefox — Firefox still
   has no background service worker, confirmed 2026). Chrome loads and runs fine but shows a

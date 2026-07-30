@@ -6,8 +6,9 @@
   "icons": {
     "16":  "loupe.iconset/icon_16x16.png",
     "32":  "loupe.iconset/icon_32x32.png",
-    "48":  "loupe.iconset/icon_64x64.png",
-    "128": "loupe.iconset/icon_128x128.png"
+    "64":  "loupe.iconset/icon_64x64.png",
+    "128": "loupe.iconset/icon_128x128.png",
+    "256": "loupe.iconset/icon_256x256.png"
   },
   "background": {
     "service_worker": "background/worker.js",
