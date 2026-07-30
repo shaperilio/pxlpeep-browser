@@ -63,8 +63,9 @@ the numbers in the info/cursor boxes — those always report **raw file values**
 palette and transfer function as a *display* transform; the pixel readout is *original data*. That
 split is the whole point of an inspector, so it's the same reason the readout ignores the palette and
 transfer function too. **Alt+W** is the A/B for what WB does to the display; the numbers stay ground
-truth. (Considered showing WB-corrected values or both raw→corrected — rejected to keep the readout
-unambiguously the source data.)
+truth. (Considered showing WB-corrected values or both raw→corrected — kept raw as the **default** to
+keep the readout unambiguously the source data; an **opt-in** corrected view is now **ROADMAP #16**,
+since the Alt+W peek surfaced a real use for reading the balanced values.)
 
 ## Measure tool
 
@@ -189,3 +190,15 @@ you're inspecting. Toggle: **`d`** key + a `grid` toolbar button.
   colour — stays put in both states, only the body below and the arrow glyph (▲/▼) change, and the box
   shrinks to the title bar when collapsed. So a click collapses and a click *in the same spot*
   re-expands, without the title jumping. Anchored to the fixed top-left corner (clear of the rulers).
+- **Cycling convention:** the plain key **advances** (next), Shift **reverses** (previous) — for both
+  palette (`V`) and function (`F`), and mirrored on the `‹ / ›` chevrons (`›` = plain, `‹` = Shift). Plain
+  key = backward is the one thing users read as wrong.
+- **Buttons don't keep focus.** Each toolbar button `preventDefault`s its `mousedown`, so a click never
+  leaves it focused. Otherwise the button stays focused and the *next* keypress (a hotkey) flips it to
+  `:focus-visible`, painting a bright ring that looks exactly like a stuck "active" toggle — a genuinely
+  baffling bug to hit. Keyboard Tab focus still works (and legitimately rings); these all have hotkeys.
+- **Top-left position anchor clears the toolbar.** The toolbar lives in that corner, so `positionImage`
+  offsets the top-left target past the toolbar's *current* bounding box — measured at command time, so
+  collapsing/expanding it afterward never shoves the image. **Reload changes nothing but pixels:** it
+  keeps zoom/pan and every overlay (even off-image after a dimension change) — the stop-motion debug loop
+  (see MOTIVATION.md; ROADMAP #14).

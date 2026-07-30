@@ -280,6 +280,49 @@ Reuse the calibration overlay-input pattern (WebView2 blocks `window.prompt`, so
 serves both shells). (Split out of the toolbar pass, where the `user`→`full` rename fixed the
 misleading label but left the underlying gap.)
 
+### 14. Toggleable auto-reload — watch the file (desktop-first)
+A toggle that makes pxlpeep **watch the current image file** and reload it automatically whenever it
+changes on disk, reusing the "reload changes nothing" semantics (keep zoom / pan / overlays) so the view
+stays pinned as the pixels update.
+
+Motivation (see `MOTIVATION.md` → *Camera calibration*): when debugging detection code that re-writes a
+visualization image at each step, **manual** reload already gives a stop-motion view of the algorithm;
+auto-reload turns it into a **live animation** — step the debugger (or let a pipeline run) and watch
+pxlpeep update in place. Also covers the tweak-threshold-and-re-run loop hands-free.
+
+- **Desktop (Tauri):** native file-watch (e.g. the `notify` crate) → emit an event → frontend calls
+  `reloadImage()` (keep-view). Debounce rapid writes; tolerate truncated / mid-write reads (retry).
+- **Browser:** no filesystem to watch; a remote URL could be polled via conditional requests
+  (ETag / Last-Modified), but that's rarely the use case — desktop-first, browser maybe-later.
+- **Toggle:** off by default (you don't always want the view refreshing under you); a control in the
+  `image` toolbar row next to reload, plus a key.
+
+### 15. White-balance-active indicator
+Surface, visibly, when a **custom (non-identity) white balance is in effect** — right now nothing in the
+UI says WB is on, so its side effects look like bugs. Concrete case that prompted this: an 8-bit JPG
+showed a **"fit" scale of 0–300**, impossible for 8-bit — because WB gains (> 1) push the corrected
+values past 255 and the Fit range tracks the corrected data. With no WB indicator, that 0–300 is
+baffling.
+
+- **Indicator:** a lit "WB" marker (toolbar / info box / colorbar title) whenever the stored WB gains
+  (`S.wbColor` or the Bayer-quad gains) differ from identity — ideally showing the gains on hover.
+- Consider having the **colorbar / scale readout flag that the range reflects WB-corrected values**
+  (vs. raw), so a super-255 Fit range reads as intentional rather than a bug.
+- Ties into the WB tool (see `DESIGN-NOTES.md`) and its eventual toolbar surfacing (ROADMAP #12).
+
+### 16. Optional WB-corrected pixel readout
+Today the info / cursor / P boxes always show **raw** file values — WB is display-only (see
+`DESIGN-NOTES.md` → the WB-stays-raw decision). Playing with the **Alt+W peek** surfaced a real use case
+for the opposite: sometimes you want the readout to show the **WB-corrected** value (what the display
+actually shows after the gains) — e.g. to confirm a region reads neutral after balancing.
+
+Design questions for later:
+- A **toggle** (raw ↔ corrected), or show **both** (`raw → corrected`)? Which readouts — info box,
+  cursor / P boxes, latched pins, all of them?
+- How to make it unambiguous which is shown (ties to the **WB-active indicator, ROADMAP #15**).
+- Keep **raw as the default / ground truth** (the whole point of an inspector); corrected is opt-in.
+- Corrected values can exceed 255 (gains > 1) — same clip / range questions as the scale.
+
 ## Platforms
 
 ### Tauri desktop wrapper

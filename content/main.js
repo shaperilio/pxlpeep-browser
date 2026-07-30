@@ -1021,7 +1021,9 @@ const CURSOR_MARKER_ZOOM = 16; // zoomFactor at/above which we snap + mark (C++ 
 // Live cursor box (shown while P is held): the marker + readout follow the cursor.
 function drawCursorBox(ctx, ow, oh) {
   if (!S.image) return;
-  const [ix,iy]=viewToImg(S.cursorX,S.cursorY);
+  const img=S.image;
+  let [ix,iy]=viewToImg(S.cursorX,S.cursorY);
+  ix=snapCentre(ix,img.width); iy=snapCentre(iy,img.height);   // bind the live box to the image, like measure/WB
   drawMarkerAndBox(ctx, ix, iy, ow, oh);
 }
 
@@ -1453,7 +1455,7 @@ const HELP_SECTIONS = [
     ["I","info box"],
     ["X","rulers"],
     ["C","colorbar"],
-    ["d","pixel grid"],
+    ["D","pixel grid (64×+ zoom)"],
   ]],
   ["Save", [
     ["Ctrl+S","save original"],
@@ -1468,9 +1470,15 @@ const HELP_SECTIONS = [
 ];
 const HELP_LINES = (() => {
   const KEYW = 14;   // key column width; longest key ("Ctrl+Shift+S") is 12
+  const data = [];
+  for (const [, items] of HELP_SECTIONS)
+    for (const [key, desc] of items) data.push(key.padEnd(KEYW) + desc);
+  // Fill each section rule out to the widest content line so headers span the whole box.
+  const width = Math.max(...data.map(l => l.length));
+  const rule = title => ("── " + title + " ").padEnd(width, "─");
   const out = ["pxlpeep " + PXLPEEP_VERSION, ""];
   for (const [title, items] of HELP_SECTIONS) {
-    out.push("── " + title + " ──");
+    out.push(rule(title));
     for (const [key, desc] of items) out.push(key.padEnd(KEYW) + desc);
     out.push("");
   }
@@ -1517,10 +1525,10 @@ function onKeyDown(e) {
     case "7": if(ctrl){positionImage("bottomRight");}else handled=false; break;
 
     case "v":case "V":
-      S.palette=((S.palette+(shift?1:-1))%6+6)%6; break;
+      S.palette=((S.palette+(shift?-1:1))%6+6)%6; break;   // plain = next, Shift = previous
 
     case "f":case "F":
-      S.imgFn=((S.imgFn+(shift?1:-1))%5+5)%5;
+      S.imgFn=((S.imgFn+(shift?-1:1))%5+5)%5;               // plain = next, Shift = previous
       recalcScale(); break;
 
     case "=":case "+":
@@ -1757,10 +1765,15 @@ function positionImage(anchor) {
   const dh=((rot===1||rot===3)?S.image.width :S.image.height)*S.zoomFactor;
   const vw=window.innerWidth, vh=window.innerHeight;
   const m=0.05*Math.min(vw,vh);
+  // Top-left is the one corner the toolbar sits in, so clear it: place the corner just right of the
+  // toolbar's CURRENT footprint (measured now, so collapsing/expanding it later won't move the image).
+  const tb=document.getElementById("pxlpeep-toolbar");
+  const tbR=tb&&getComputedStyle(tb).display!=="none" ? tb.getBoundingClientRect() : null;
+  const leftClear = tbR ? Math.max(m, tbR.right+m) : m;
   const left=m, right=vw-m-dw, top=m, bottom=vh-m-dh;
   switch(anchor){
     case "center":      S.panX=(vw-dw)/2; S.panY=(vh-dh)/2; break;
-    case "topLeft":     S.panX=left;  S.panY=top;    break;
+    case "topLeft":     S.panX=leftClear; S.panY=top;    break;   // clear the toolbar
     case "topRight":    S.panX=right; S.panY=top;    break;
     case "bottomLeft":  S.panX=left;  S.panY=bottom; break;
     case "bottomRight": S.panX=right; S.panY=bottom; break;
@@ -1817,6 +1830,10 @@ function buildToolbar() {
       background:"#333",color:"#ddd",...style,
     });
     b.addEventListener("click",onclick);
+    // Don't let a click leave the button focused — otherwise the NEXT keypress (a hotkey) flips it to
+    // :focus-visible and paints a bright ring that reads like a stuck "active" state. Keyboard Tab
+    // focus still works (and legitimately shows the ring); these buttons all have hotkeys anyway.
+    b.addEventListener("mousedown",e=>e.preventDefault());
     b.addEventListener("mouseenter",()=>b.style.background="#555");
     b.addEventListener("mouseleave",()=>b.style.background=b._active?"#fff":"#333");
     b._setActive=(v)=>{
@@ -1835,7 +1852,7 @@ function buildToolbar() {
   Object.assign(header.style,{display:"flex",alignItems:"center",gap:"6px",cursor:"pointer",userSelect:"none"});
   header.title="Collapse / expand the toolbar";
   const title=document.createElement("span");
-  title.textContent="pxlpeep"; title.style.fontWeight="bold"; title.style.color="#aaa";
+  title.textContent="pxlpeep "+PXLPEEP_VERSION; title.style.fontWeight="bold"; title.style.color="#aaa";
   const collapseArrow=document.createElement("span");
   collapseArrow.textContent="▲"; Object.assign(collapseArrow.style,{color:"#aaa",fontSize:"10px"});
   header.appendChild(title); header.appendChild(collapseArrow);
@@ -1871,7 +1888,7 @@ function buildToolbar() {
   // ── Image (reload; grows to open/paste later) ──
   body.appendChild(row(
     lbl("image"),
-    btn("⟳ reload","[F5] Reload the image — re-fetch and fit to window",()=>{reloadImage();refresh();}),
+    btn("⟳ reload","[F5] Reload the image — re-fetch the pixels, keep zoom/pan and all overlays",()=>{reloadImage();refresh();}),
   ));
 
   // ── Palette (prev ‹ name › next, like dip — label is the current selection, chevrons act) ──
@@ -1879,9 +1896,9 @@ function buildToolbar() {
   palName.style.cssText="flex:1;text-align:center;";
   body.appendChild(row(
     lbl("palette"),
-    btn("‹","[V] Previous color palette / false-color LUT",()=>{S.palette=((S.palette-1)%6+6)%6;refresh();}),
+    btn("‹","[Shift+V] Previous color palette / false-color LUT",()=>{S.palette=((S.palette-1)%6+6)%6;refresh();}),
     palName,
-    btn("›","[Shift+V] Next color palette / false-color LUT",()=>{S.palette=((S.palette+1)%6+6)%6;refresh();}),
+    btn("›","[V] Next color palette / false-color LUT",()=>{S.palette=((S.palette+1)%6+6)%6;refresh();}),
   ));
 
   // ── Function ──
@@ -1889,9 +1906,9 @@ function buildToolbar() {
   fnName.style.cssText="flex:1;text-align:center;";
   body.appendChild(row(
     lbl("function"),
-    btn("‹","[F] Previous transfer function",()=>{S.imgFn=((S.imgFn-1)%5+5)%5;recalcScale();refresh();}),
+    btn("‹","[Shift+F] Previous transfer function",()=>{S.imgFn=((S.imgFn-1)%5+5)%5;recalcScale();refresh();}),
     fnName,
-    btn("›","[Shift+F] Next transfer function",()=>{S.imgFn=((S.imgFn+1)%5+5)%5;recalcScale();refresh();}),
+    btn("›","[F] Next transfer function",()=>{S.imgFn=((S.imgFn+1)%5+5)%5;recalcScale();refresh();}),
   ));
 
   // ── Dip factor ──
@@ -2153,12 +2170,12 @@ function showLoadError(err){
   retry.textContent="Retry";
   Object.assign(retry.style,{marginTop:"14px",padding:"6px 18px",cursor:"pointer",
     border:"1px solid #555",borderRadius:"6px",background:"#333",color:"#eee",font:"13px system-ui,sans-serif"});
-  retry.onclick=startLoad;
+  retry.onclick=()=>startLoad();
   box.append(msg,url,retry);
   setStatus(box);
 }
 
-function startLoad(){
+function startLoad(keepView){
   setStatus("Loading…");
   loadImage(S.imageUrl).then(img=>{
     clearStatus();
@@ -2166,7 +2183,7 @@ function startLoad(){
     S.userMin=0; S.userMax=(1<<img.bpp)-1;
     recalcScale();
     renderer?.upload(img.data, img.width, img.height, img.numChannels);
-    zoomToFit();
+    if(!keepView) zoomToFit();   // reload keeps the current zoom/pan; only the initial open fits
     refreshToolbar();
     requestFrame();
   }).catch(showLoadError);
@@ -2177,14 +2194,15 @@ function startLoad(){
   });
 }
 
-// Desktop reload (Ctrl+R / F5): drop the memoized source blob and re-run the full
-// load — re-fetch, re-decode, re-parse EXIF. The browser doesn't bind this (F5 just
-// reloads the tab); it's for the Tauri shell, which has no browser chrome, and will
-// matter in the browser too once a playlist/workspace makes a bare tab refresh lose
-// accumulated state instead of just re-reading one image.
+// Reload (Ctrl+R / F5 on desktop; the toolbar ⟳ button in both shells): drop the memoized
+// source blob and re-run the full load — re-fetch, re-decode, re-parse EXIF — but change
+// NOTHING else. keepView=true preserves the current zoom/pan, and every overlay (measures,
+// pins, WB box) is left untouched, even if a reloaded image with new dimensions leaves them
+// off-image. This is the "stop-motion" debug loop: rewrite the file, reload, see the result
+// on the very same pixels (see MOTIVATION.md → camera calibration; ROADMAP #14 auto-reload).
 function reloadImage(){
   _sourceBlobPromise = null;
-  startLoad();
+  startLoad(true);
 }
 startLoad();
 
@@ -2217,8 +2235,8 @@ ovCanvas.addEventListener("pointerdown",e=>{
   } else if(mHeld && img) {                // measure: centre-snapped line
     const x=snapCentre(ix,img.width), y=snapCentre(iy,img.height);
     measureDrag={x1:x,y1:y,x2:x,y2:y};
-  } else if(pHeld && img) {                // latch a frozen cursor box at the click point
-    addLatched(ix, iy);
+  } else if(pHeld && img) {                // latch a frozen cursor box, centre-snapped + clamped to the image (like measure)
+    addLatched(snapCentre(ix,img.width), snapCentre(iy,img.height));
   } else {                                 // pan
     panDrag={sx:e.clientX,sy:e.clientY,px:S.panX,py:S.panY};
     ovCanvas.style.cursor="grabbing";
