@@ -121,6 +121,10 @@ floating-point** images too.
   auto-scaling nonetheless seemed to *infer* the true bit depth, so we need fixtures that are **not
   fully white / not saturated** (partial-range 12/14/16-bit content) to experiment with that
   detection. Ties into the far-side "auto-detect real bit depth (ImageJ heuristic)" research.
+- **Unlocks diverging palettes.** Float / non-integer data is naturally **signed / centred**
+  (deviations, residuals, ± ranges), which is exactly where **diverging colormaps** (e.g.
+  blue↔white↔red about a reference) belong — see #7. Add them together with a settable reference / zero
+  point once this lands.
 - Big effort, shared by both targets.
 
 ### 6. Back-port the "free wins" from the C++ original (`PARITY.md` §5)
@@ -186,14 +190,24 @@ map to equal *perceived* steps.
 - **Perceptually-uniform color maps** (the viridis / cividis / magma family) as false-color options
   — monotonic in lightness, colorblind-safe, and without the misleading bright/dark bands a naive
   rainbow produces.
-- Fits the existing 256×N LUT machinery cleanly — just additional computed palette rows; the
-  shader / colorbar path is unchanged.
+- **Sequential + greyscale maps fit the existing 256×N LUT cleanly** — just additional computed
+  palette rows; the shader / colorbar path is unchanged. The LUT is **1D**: one scalar → one colour.
+- **Diverging maps** (blue↔white↔red about a reference) are also 1D and slot into the same machinery,
+  but only make sense once data can be **signed / centred** — i.e. the float / non-integer pipeline
+  (**#5**). Defer them until then, with a settable reference / zero point.
+- **Ternary / isoluminant multi-channel maps are the exception — they do NOT fit the current path.**
+  See the ternary note under References; they need a new multi-channel colour path, not more LUT rows.
 - **References** (read Kovesi first; cite it when we implement):
   - Kovesi, "Good Colour Maps: How to Design Them" — https://arxiv.org/abs/1509.03700 — the
     authoritative design method (uniform perceptual contrast / constant lightness gradient).
     **§6 "Colours for Ternary Images" is of particular interest to pxlpeep** — it's a
-    3-channel / RGB inspector, so perceptual colours for ternary (three-component) data apply
-    directly, on top of the single-channel colormaps we also want.
+    3-channel / RGB inspector, so perceptual colours for ternary (three-component) data are a natural
+    fit. **But the current paletting cannot express them:** the LUT is strictly 1D (scalar → colour),
+    and the multi-channel path runs each channel through that *same* 1D LUT and keeps only one byte
+    (the C++ BGRA-blue quirk in `main.js`) — there is no way to assign three isoluminant colours and
+    blend them. Ternary therefore needs a **new multi-channel colour path** (per-channel isoluminant
+    colour + additive blend, or a dedicated multi-channel shader branch) — a separate, larger task
+    from the 1D maps, overlapping the > 3-channel / "layers" work (#17).
   - https://colorcet.com/ — Kovesi's CET maps with data + test images (the applied output).
   - https://colorcet.holoviz.org/ — Python packaging; reference RGB values to check our LUT.
   - https://bids.github.io/colormap/ — "A Better Default Colormap" (viridis origin; accessible
@@ -322,6 +336,20 @@ Design questions for later:
 - How to make it unambiguous which is shown (ties to the **WB-active indicator, ROADMAP #15**).
 - Keep **raw as the default / ground truth** (the whole point of an inspector); corrected is opt-in.
 - Corrected values can exceed 255 (gains > 1) — same clip / range questions as the scale.
+
+### 17. More than 3 channels ("layers") — RESEARCH, pretty unexplored
+Display images with **more than 3 channels** — multispectral / hyperspectral, or the **"layers"** model
+familiar from mapping / GIS (each channel a named layer you show / hide / assign a colour to). Today
+pxlpeep assumes ≤ 3 (grey or RGB) end-to-end: the decode, the `S.channels` bitmask (R/G/B = 1/2/4), the
+three channel toggles, the shader's 1D-LUT + multi-channel path, and the readout all bake in that
+assumption. Open questions:
+- **Sources** that carry > 3 channels — multi-sample / multi-page TIFF, OpenEXR, ENVI / GeoTIFF, … —
+  tie into the decoder work (#5).
+- **UI:** a channel / **layer list** (name, show / hide / solo, assign a colour) instead of three R/G/B
+  buttons; what "the image" even means at 8 or 200 bands (pick 3 to map to RGB? composite?).
+- **Colour assignment:** per-layer colour + blend — this is the *same* new multi-channel colour path the
+  **ternary / isoluminant** maps in #7 need (neither fits the 1D LUT).
+- **Naming:** past 3, "channels" reads oddly — "layers" (mapping usage) may fit better.
 
 ## Platforms
 

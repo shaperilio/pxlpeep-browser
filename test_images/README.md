@@ -20,6 +20,7 @@ from **viewing** each image; dimensions/format are from .NET GDI+.
 | `trans.png`          | 2,811   | 4×4     | 32bpp ARGB  | transparency / alpha handling                                       |
 | `test.tif`           | 73,504  | 317×159 | 8bpp grey   | hand-drawn "Test" doodle (bubble letters + a wizard with wand & stars), B/W line-art |
 | `test2.tif`          | 74,420  | 317×159 | 8bpp grey   | metadata-variant of `test.tif` (see note)                           |
+| `colourmaptest.png`  | 4,096   | 512×128 | 8bpp grey   | Kovesi's colormap-evaluation ramp — linear 0→255 gradient + a constant-amplitude high-frequency sinusoid → a perceptually-uniform palette keeps the ripple evenly visible across the whole range (for judging the CET-L maps, `ROADMAP.md` #7) |
 
 **`test.tif` vs `test2.tif` — pixel-identical, differ only in metadata.** Verified: **0 differing
 pixels** across all 50,403; both are uncompressed 8-bit greyscale 317×159 with the same
@@ -31,6 +32,10 @@ TIFF that must still decode to the right pixels" fixture; if that wasn't the int
 redundant.
 
 Notes:
+- `colourmaptest.png` is **not** from the C++ original — it's Peter Kovesi's standard colormap-test
+  image (colorcet.com), added to evaluate the perceptually-uniform palettes (`ROADMAP.md` #7): apply a
+  map and the superimposed ripple should read at even amplitude across the whole ramp; a poor map hides
+  it at some values and exaggerates it at others.
 - Every fixture here is ≤ 8-bit (or 1-bit); there is **no 16-bit fixture yet** — testing the 16-bit
   pipeline (`ROADMAP.md` Feature #5) will need one added.
 - Browsers can't decode TIFF or CMYK, so those fixtures currently exercise only the desktop build
