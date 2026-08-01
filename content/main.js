@@ -17,17 +17,25 @@ const PXLPEEP_VERSION = "26.7.0";
 const Scaling  = { Fit:0, Centered:1, User:2 };
 const ImgFn    = { OneToOne:0, Log10Brighten:1, Log10Darken:2, Brighten:3, Darken:4 };
 const Rotation = { Zero:0, CCW90:1, CCW180:2, CCW270:3 };
-const Palette  = { Grey:0, GreyInv:1, GreySat:2, GreySatInv:3, ColorExp:4, Color1:5 };
+const Palette  = { Grey:0, GreyInv:1, GreySat:2, GreySatInv:3, ColorExp:4, CETL07:5, CETL07Inv:6 };
 const CHAN_R   = 1, CHAN_G = 2, CHAN_B = 4;
 
-const PALETTE_NAMES = ["Grey","Inv. grey","Grey+sat","Inv. grey+sat","Color expansion","Colormap 1"];
+const PALETTE_NAMES = ["Grey","Inv. grey","Grey+sat","Inv. grey+sat","Color expansion","CET-L07","Inv. CET-L07"];
 const FN_NAMES      = ["1:1","log brighten","log darken","parabolic brighten","parabolic darken"];
+const NUM_PALETTES  = PALETTE_NAMES.length;   // single source: LUT rows, shader row divisor, cycle modulo
+
+// CET-L07 — Peter Kovesi's perceptually-uniform *linear* blue→magenta→white map (colorcet.com, CC0).
+// Ends near white so all three channels rise → safe under the per-channel byte swap below.
+// 256 RGB triples (R,G,B interleaved) packed base64; verified monotonic + evenly spaced in CIELAB L*.
+const CETL07 = Uint8Array.from(atob(
+  "AAJLAANNAANPAARRAARTAARVAAVYAAVaAAVcAAVeAAVgAAViAAVkAAVmAAVoAQVqAQVtAQVvAQVxAgVzAgV1AgV3AwV5AwV8AwV+BAWABAWCBAWEBAaHBQaJBQaLBQaNBQaQBgaSBgaUBgaWBgaZBgabBgadBgafBgaiBgekBQemBQepBQerBQetBQivBQiyBQi0BQi2BQm4Bgm6Bgq9Bwq/CArBCQvDCwvFDAzHDQzJDw3LEA3NEg7PEw7RFQ/TFg/VGBDWGRHYGxHaHRLcHhLeIBPfIhThJBTjJhXkKBXmKhbnLBbpLxfqMRfsNBjtNxjuORnvPBnwPxnyQhrzRRr0SBr1Sxv1TRv2UBv3Uxv4Vhv4WRz5XRz6YBz6Yxz6Zhz7aRz7bBz7bxz8chz8dRz8eBz8exz8fhz8gBz9gxz9hhz9iRz9ixz9jhz9kRz9kx39lh3+mR3+mx3+nh3+oB3+ox3+pR3+qB3+qh3+rR3+rx3+sR3+tB3+thz+uRz+uxz+vR3+wB3+wh3+xB3+xh7+yB7+yh/+zCD+ziH+0CL+0iP+1CT+1iX+1yb+2Sf+2yn+3Cr+3iz+4C3+4S7+4zD+5DL+5TP+5zX+6Df+6Tj+6zr+7Dz+7T7+7j/+70H+8EP+8UX+8kf+80n+9Ev+9U3+9k/+91H++FP++FX++Vf++ln++lv++13++1/+/GH+/GP+/GX+/Wf+/Wr+/Wz9/W79/nD9/nL9/nT9/nb9/nj9/nv9/n39/n/9/oH9/oP9/oX9/of9/oj9/or9/oz9/o79/pD9/pL9/pT9/pX9/pf9/pn9/pv9/pz9/p79/qD9/qL9/qP9/qX9/qf9/qj9/qr9/qz9/q39/q/9/rH+/rL+/rT+/rX+/rf+/rn+/rr+/rz+/r3+/r/+/sH+/sL+/8T+/8X+/8f+/8j+/8r+/8v+/83+/87+/9D+/9H+/9P+/9T+/9b+/9f+/9n+/9r+/9z+/93+/9/+/+D+/+L+/+P+/+X+/ub+/uj+/un+/uv+"
+), c=>c.charCodeAt(0));
 
 // Filesystem-safe short tokens for self-documenting "save mapped" filenames (the
 // C++ used raw enum ints, "_s2_f0_m0_r0"; these say what they mean). Index by enum.
 const SCALE_TAG   = ["fit","centered","user"];
 const FN_TAG      = ["linear","logBright","logDark","parabBright","parabDark"];
-const PALETTE_TAG = ["grey","greyInv","greySat","greySatInv","colorExp","cmap1"];
+const PALETTE_TAG = ["grey","greyInv","greySat","greySatInv","colorExp","cetL07","cetL07Inv"];
 const ROT_DEG     = [0,90,180,270];
 
 const ZOOM_STEP    = Math.SQRT2;
@@ -236,14 +244,9 @@ function recomputeMinMax() {
 // ══════════════════════════════════════════════════════════════════════════════
 
 function buildLUT() {
-  // 256 × 6 RGBA8 packed into a flat Uint8Array (row = palette)
-  const NUM_PAL = 6, SIZE = 256;
+  // 256 × NUM_PALETTES RGBA8 packed into a flat Uint8Array (row = palette)
+  const NUM_PAL = NUM_PALETTES, SIZE = 256;
   const data = new Uint8Array(SIZE * NUM_PAL * 4);
-
-  // Colormap1 waypoints: Black|Purple|Blue|Green|Magenta|Red|Yellow|White
-  const CM1_R=[0,128,0,0,255,255,255,255];
-  const CM1_G=[0,0,0,128,0,0,255,255];
-  const CM1_B=[0,128,255,0,255,0,0,255];
 
   for (let p=0; p<NUM_PAL; p++) {
     for (let i=0; i<SIZE; i++) {
@@ -275,15 +278,10 @@ function buildLUT() {
         case Palette.ColorExp:
           // simpleExpansion: B=i, G=0, R=0  (matches C++ which gives blue-only for values 0-255)
           data[base]=0; data[base+1]=0; data[base+2]=i; data[base+3]=255; break;
-        case Palette.Color1: {
-          const idx = Math.max(0,Math.min(7, i/255*7));
-          const lo=Math.floor(idx), hi=Math.ceil(idx);
-          const f = hi===lo ? 1 : (hi-idx)/(hi-lo);
-          data[base]   = Math.round(CM1_R[lo]*f + CM1_R[hi]*(1-f));
-          data[base+1] = Math.round(CM1_G[lo]*f + CM1_G[hi]*(1-f));
-          data[base+2] = Math.round(CM1_B[lo]*f + CM1_B[hi]*(1-f));
-          data[base+3] = 255;
-          break;
+        case Palette.CETL07:
+          data[base]=CETL07[i*3]; data[base+1]=CETL07[i*3+1]; data[base+2]=CETL07[i*3+2]; data[base+3]=255; break;
+        case Palette.CETL07Inv: { const j=(255-i)*3;   // reversed LUT, same trick as Inv. grey
+          data[base]=CETL07[j]; data[base+1]=CETL07[j+1]; data[base+2]=CETL07[j+2]; data[base+3]=255; break;
         }
       }
     }
@@ -344,7 +342,7 @@ float fn(float v){
 
 vec4 lut(float v){
   float t=clamp(v/255.,0.,1.);
-  return texture(uLUT,vec2(t,(float(uPal)+.5)/6.));
+  return texture(uLUT,vec2(t,(float(uPal)+.5)/${NUM_PALETTES}.));
 }
 
 vec4 satWarn(float v){
@@ -399,8 +397,11 @@ void main(){
     fragColor=lut(mapped); return;
   }
 
-  // Multi-channel (2+ active): mirrors C++ translatePixelMultiChan.
-  // Each output channel gets palette[channelValue*4][0] = blue/first byte of BGRA entry = lut(v).b.
+  // Multi-channel (2+ active): apply the palette PER CHANNEL through its own colour coordinate —
+  // out.R=lut(R).r, out.G=lut(G).g, out.B=lut(B).b — so a palette whose R/G/B channels all rise
+  // (e.g. CET-L07, which ends near white) keeps a colour image believable rather than inverting it.
+  // (The C++ translatePixelMultiChan took the *blue* byte for every channel, which inverts any
+  // palette whose blue channel falls; grey is the identity LUT, so both agree there.)
   // For ColorExpansion: C++ val = floor(m*65793), output = val & 0xFF = floor(m*65793) mod 256.
   float mR=(fn(rR)-uOffset)*uScale;
   float mG=(fn(rG)-uOffset)*uScale;
@@ -413,7 +414,7 @@ void main(){
       1.);
     return;
   }
-  fragColor=vec4(lut(mR).b,lut(mG).b,lut(mB).b,1.);
+  fragColor=vec4(lut(mR).r,lut(mG).g,lut(mB).b,1.);
 }`;
 
 function makeShader(gl, type, src) {
@@ -466,7 +467,7 @@ class Renderer {
     const gl = this.gl;
     this.lutTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this.lutTex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 6, 0, gl.RGBA, gl.UNSIGNED_BYTE, LUT_DATA);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, NUM_PALETTES, 0, gl.RGBA, gl.UNSIGNED_BYTE, LUT_DATA);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -1525,7 +1526,7 @@ function onKeyDown(e) {
     case "7": if(ctrl){positionImage("bottomRight");}else handled=false; break;
 
     case "v":case "V":
-      S.palette=((S.palette+(shift?-1:1))%6+6)%6; break;   // plain = next, Shift = previous
+      S.palette=((S.palette+(shift?-1:1))%NUM_PALETTES+NUM_PALETTES)%NUM_PALETTES; break;   // plain = next, Shift = previous
 
     case "f":case "F":
       S.imgFn=((S.imgFn+(shift?-1:1))%5+5)%5;               // plain = next, Shift = previous
@@ -1896,9 +1897,9 @@ function buildToolbar() {
   palName.style.cssText="flex:1;text-align:center;";
   body.appendChild(row(
     lbl("palette"),
-    btn("‹","[Shift+V] Previous color palette / false-color LUT",()=>{S.palette=((S.palette-1)%6+6)%6;refresh();}),
+    btn("‹","[Shift+V] Previous color palette / false-color LUT",()=>{S.palette=((S.palette-1)%NUM_PALETTES+NUM_PALETTES)%NUM_PALETTES;refresh();}),
     palName,
-    btn("›","[V] Next color palette / false-color LUT",()=>{S.palette=((S.palette+1)%6+6)%6;refresh();}),
+    btn("›","[V] Next color palette / false-color LUT",()=>{S.palette=((S.palette+1)%NUM_PALETTES+NUM_PALETTES)%NUM_PALETTES;refresh();}),
   ));
 
   // ── Function ──
