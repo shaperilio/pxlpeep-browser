@@ -396,11 +396,13 @@ remaps *within* it. They are not curves and do not belong in the function cycle.
 - Pairs naturally with the high-bit-depth pipeline (#5), where plain min/max is least useful (huge ranges,
   sparse signal), and with the WB-past-max case (#15) where the nominal ceiling no longer bounds the data.
 
-### 20. Alternative transfer functions (gamma / asinh / normalized log) — CAPTURED FOR CONSIDERATION, not planned
-Standard image-stretch curves surveyed against pxlpeep's own log / parabolic. **Decision (2026-08-02): keep
-what we have — no change, no additions.** The current parabolic + log brighten/darken are deliberately
-*drastic*, arrived at through experimentation, and do the job; these are recorded only so the option is
-documented, not because anything is wrong with the existing set. Revisit only if a concrete need appears.
+### 20. Alternative transfer functions (gamma adopted; asinh / normalized log surveyed, not planned)
+Standard image-stretch curves surveyed against pxlpeep's own log / parabolic. **Update (2026-08-02): gamma was
+adopted** (single-entry, `S.dipFactor` = exponent — see below); **asinh and normalized log remain
+surveyed-but-not-planned.** The current parabolic + log brighten/darken stay as-is — deliberately *drastic*,
+arrived at through experimentation; gamma joined them because it's the standard single-knob stretch and worth
+playing with. asinh / normalized log are recorded only so the option is documented — revisit those only if a
+concrete need appears.
 
 Normalized forms below use input `x ∈ [0,1]` (the value after the scale maps it in) → output `y ∈ [0,1]`; `a`
 is the primary knob (`b`, `c`, … if more were ever needed — none of these need a second). For reference,
@@ -413,9 +415,11 @@ pxlpeep's own two in that same normalized space:
   reason "more drastic" is by design).
 
 The surveyed alternatives, for the record:
-- **Gamma / power** — `y = xᵃ`. `a` = exponent; `a < 1` brightens, `a > 1` darkens, `a = 1` linear. One
-  monotonic knob spans *both* directions (no separate brighten/darken modes), and it subsumes √ (`a = 0.5`) and
-  x² (`a = 2`). The tidiest single-control option if we ever unified the family.
+- **Gamma / power** — ✅ *implemented* (single `gamma` entry; `S.dipFactor` is the exponent, `dip = 1` identity,
+  `< 1` brightens, `> 1` darkens; applied over the scale range like parabolic — `y = x^dip` normalized to
+  `[scaleMin,scaleMax]`). `y = xᵃ`. `a` = exponent; one monotonic knob spans *both* directions (no separate
+  brighten/darken modes), and it subsumes √ (`a = 0.5`) and x² (`a = 2`) — the tidiest single control, which is
+  why it went in first.
 - **Normalized log (DS9 / astropy `LogStretch`)** — `y = log(1 + a·x) ∕ log(1 + a)`. `a` = strength (astropy
   default 1000). Endpoint-clean (defined at `x = 0` via the `+1`, pinned to `y(1) = 1`) and genuinely tunable —
   the better-behaved cousin of the current log. `a → 0` → linear. Brighten-only (darken is its inverse,

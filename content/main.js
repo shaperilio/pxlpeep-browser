@@ -15,13 +15,14 @@ const PXLPEEP_VERSION = "26.7.0";
 // ══════════════════════════════════════════════════════════════════════════════
 
 const Scaling  = { Fit:0, Centered:1, User:2 };
-const ImgFn    = { OneToOne:0, LogBrighten:1, LogDarken:2, ParabolicBrighten:3, ParabolicDarken:4 };
+const ImgFn    = { OneToOne:0, LogBrighten:1, LogDarken:2, ParabolicBrighten:3, ParabolicDarken:4, Gamma:5 };
 const Rotation = { Zero:0, CCW90:1, CCW180:2, CCW270:3 };
 const Palette  = { Grey:0, GreyInv:1, GreySat:2, GreySatInv:3, ColorExp:4, CETL07:5, CETL07Inv:6 };
 const CHAN_R   = 1, CHAN_G = 2, CHAN_B = 4;
 
 const PALETTE_NAMES = ["Grey","Inv. grey","Grey+sat","Inv. grey+sat","Color expansion","CET-L07","Inv. CET-L07"];
-const FN_NAMES      = ["1:1","log brighten","log darken","parabolic brighten","parabolic darken"];
+const FN_NAMES      = ["1:1","log brighten","log darken","parabolic brighten","parabolic darken","gamma"];
+const NUM_FNS       = FN_NAMES.length;        // single source: transfer-function cycle modulo
 const NUM_PALETTES  = PALETTE_NAMES.length;   // single source: LUT rows, shader row divisor, cycle modulo
 
 // CET-L07 — Peter Kovesi's perceptually-uniform *linear* blue→magenta→white map (colorcet.com, CC0).
@@ -34,7 +35,7 @@ const CETL07 = Uint8Array.from(atob(
 // Filesystem-safe short tokens for self-documenting "save mapped" filenames (the
 // C++ used raw enum ints, "_s2_f0_m0_r0"; these say what they mean). Index by enum.
 const SCALE_TAG   = ["fit","centered","user"];
-const FN_TAG      = ["linear","logBright","logDark","parabBright","parabDark"];
+const FN_TAG      = ["linear","logBright","logDark","parabBright","parabDark","gamma"];
 const PALETTE_TAG = ["grey","greyInv","greySat","greySatInv","colorExp","cetL07","cetL07Inv"];
 const ROT_DEG     = [0,90,180,270];
 
@@ -174,6 +175,13 @@ function applyFn(v, fn, dip, minV, maxV) {
     case ImgFn.ParabolicDarken: {
       const r = parabolicResponse(v, minV, maxV, 1/Math.max(dip,1e-9));
       return Math.max(minV, Math.min(maxV, r));
+    }
+    case ImgFn.Gamma: {
+      // y = x^dip over [minV,maxV] normalized to [0,1]: dip<1 brightens, dip>1 darkens, dip=1 identity.
+      const range = maxV - minV;
+      if (range === 0) return v;
+      const t = Math.min(Math.max((v-minV)/range, 0), 1);
+      return minV + Math.pow(t, dip)*range;
     }
     default: return v;
   }
@@ -336,6 +344,11 @@ float fn(float v){
     float b=1.-a*(uSMax+uSMin);
     float c=(1.-b)/(uSMax+uSMin)*(uSMax+uSMin)*(uSMax+uSMin)/4.+(b-dip)*(uSMax+uSMin)/2.;
     return clamp(a*v*v+b*v+c,uSMin,uSMax);
+  }
+  if(uFn==5){
+    float rng=uSMax-uSMin; if(rng==0.) return v;
+    float t=clamp((v-uSMin)/rng,0.,1.);
+    return uSMin+pow(t,uDip)*rng;
   }
   return v;
 }
@@ -1526,7 +1539,7 @@ function onKeyDown(e) {
       S.palette=((S.palette+(shift?-1:1))%NUM_PALETTES+NUM_PALETTES)%NUM_PALETTES; break;   // plain = next, Shift = previous
 
     case "f":case "F":
-      S.imgFn=((S.imgFn+(shift?-1:1))%5+5)%5;               // plain = next, Shift = previous
+      S.imgFn=((S.imgFn+(shift?-1:1))%NUM_FNS+NUM_FNS)%NUM_FNS;   // plain = next, Shift = previous
       recalcScale(); break;
 
     case "=":case "+":
@@ -1904,9 +1917,9 @@ function buildToolbar() {
   fnName.style.cssText="flex:1;text-align:center;";
   body.appendChild(row(
     lbl("function"),
-    btn("‹","[Shift+F] Previous transfer function",()=>{S.imgFn=((S.imgFn-1)%5+5)%5;recalcScale();refresh();}),
+    btn("‹","[Shift+F] Previous transfer function",()=>{S.imgFn=((S.imgFn-1)%NUM_FNS+NUM_FNS)%NUM_FNS;recalcScale();refresh();}),
     fnName,
-    btn("›","[F] Next transfer function",()=>{S.imgFn=((S.imgFn+1)%5+5)%5;recalcScale();refresh();}),
+    btn("›","[F] Next transfer function",()=>{S.imgFn=((S.imgFn+1)%NUM_FNS+NUM_FNS)%NUM_FNS;recalcScale();refresh();}),
   ));
 
   // ── Dip factor ──
@@ -1914,9 +1927,9 @@ function buildToolbar() {
   dipVal.style.cssText="flex:1;text-align:center;";
   const dipRow=row(
     lbl("dip"),
-    btn("−","[−] Weaken the dip factor — strength of the log/parabolic transfer curve (no effect unless fn is log/parabolic)",()=>{S.dipFactor/=1.25;recalcScale();refresh();}),
+    btn("−","[−] Decrease the dip factor — log/parabolic strength, or the gamma exponent (lower = brighter). No effect on 1:1.",()=>{S.dipFactor/=1.25;recalcScale();refresh();}),
     dipVal,
-    btn("+","[+] Strengthen the dip factor — strength of the log/parabolic transfer curve (no effect unless fn is log/parabolic)",()=>{S.dipFactor*=1.25;recalcScale();refresh();}),
+    btn("+","[+] Increase the dip factor — log/parabolic strength, or the gamma exponent (higher = darker). No effect on 1:1.",()=>{S.dipFactor*=1.25;recalcScale();refresh();}),
   );
   body.appendChild(dipRow);
 
