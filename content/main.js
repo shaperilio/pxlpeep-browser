@@ -15,7 +15,7 @@ const PXLPEEP_VERSION = "26.7.0";
 // ══════════════════════════════════════════════════════════════════════════════
 
 const Scaling  = { Fit:0, Centered:1, User:2 };
-const ImgFn    = { OneToOne:0, Log10Brighten:1, Log10Darken:2, Brighten:3, Darken:4 };
+const ImgFn    = { OneToOne:0, LogBrighten:1, LogDarken:2, ParabolicBrighten:3, ParabolicDarken:4 };
 const Rotation = { Zero:0, CCW90:1, CCW180:2, CCW270:3 };
 const Palette  = { Grey:0, GreyInv:1, GreySat:2, GreySatInv:3, ColorExp:4, CETL07:5, CETL07Inv:6 };
 const CHAN_R   = 1, CHAN_G = 2, CHAN_B = 4;
@@ -159,19 +159,19 @@ function parabolicResponse(v, minV, maxV, dip) {
 
 function applyFn(v, fn, dip, minV, maxV) {
   switch(fn) {
-    case ImgFn.Log10Brighten: {
+    case ImgFn.LogBrighten: {
       if (v > 0) { const r = Math.log10(v*dip*dip); return r > 0 ? r : 0; }
       return 0;
     }
-    case ImgFn.Log10Darken: {
+    case ImgFn.LogDarken: {
       if (v > 0) { const r = Math.log10(v/Math.max(dip*dip,1e-9)); return r > 0 ? r : 0; }
       return 0;
     }
-    case ImgFn.Brighten: {
+    case ImgFn.ParabolicBrighten: {
       const r = parabolicResponse(v, minV, maxV, dip);
       return Math.max(minV, Math.min(maxV, r));
     }
-    case ImgFn.Darken: {
+    case ImgFn.ParabolicDarken: {
       const r = parabolicResponse(v, minV, maxV, 1/Math.max(dip,1e-9));
       return Math.max(minV, Math.min(maxV, r));
     }
@@ -1109,11 +1109,11 @@ function drawColorbar(ctx, ow, oh) {
 
   let title=PALETTE_NAMES[S.palette];
   const ds=S.dipFactor.toFixed(3);
-  if(S.imgFn===ImgFn.Log10Darken)  title+=` log darken (${ds})`;
-  if(S.imgFn===ImgFn.Log10Brighten)title+=` log brighten (${ds})`;
-  if(S.imgFn===ImgFn.Darken)       title+=` parabolic darken (${ds})`;
-  if(S.imgFn===ImgFn.Brighten)     title+=` parabolic brighten (${ds})`;
-  if(S.scaling===Scaling.Fit)      title+=" fit";
+  if(S.imgFn===ImgFn.LogDarken)             title+=` log darken (${ds})`;
+  if(S.imgFn===ImgFn.LogBrighten)           title+=` log brighten (${ds})`;
+  if(S.imgFn===ImgFn.ParabolicDarken)       title+=` parabolic darken (${ds})`;
+  if(S.imgFn===ImgFn.ParabolicBrighten)     title+=` parabolic brighten (${ds})`;
+  if(S.scaling===Scaling.Fit)               title+=" fit";
 
   const minTxt=S.scaleMin.toFixed(1), maxTxt=S.scaleMax.toFixed(1);
 
