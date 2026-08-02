@@ -351,6 +351,86 @@ assumption. Open questions:
   **ternary / isoluminant** maps in #7 need (neither fits the 1D LUT).
 - **Naming:** past 3, "channels" reads oddly — "layers" (mapping usage) may fit better.
 
+### 18. Multi-channel saturation display — NEEDS DESIGN
+The `Grey+sat` / `Inv. grey+sat` palettes flag under/over-exposure in **single-channel** view (blue =
+floor, red = ceiling). On a **colour image** (2+ channels) they currently degenerate to the per-channel
+byte of the sat LUT — no real warning. Goal: **show where each channel saturates** when more than one is
+selected. The per-channel byte swap can't carry this — a warning must *override the pixel with a distinct
+colour*, which a per-channel byte can't inject — so it needs a **dedicated multi-channel branch** (extend
+`satWarn(scalar)` → `satWarnMulti(R,G,B)`), triggered by the grey+sat palettes.
+
+Design questions to settle:
+- **Raw vs displayed clipping.** Today `satWarn` fires on the *mapped* value, so the warning shifts as you
+  change the scale / transfer function. For inspection (especially camera eval) you usually want **raw**
+  channel clipping — the value at its floor/ceiling in the *source* — which is physical and
+  scale-independent. Lean: raw; consider switching the single-channel warning to raw too, for consistency.
+- **Which channel, or just "clipped here"?** (A) any-channel — one colour if *any* active channel clips;
+  (B) **per-channel complementary markers** — encode *which* channel(s) blew (R-only → cyan, G → magenta,
+  B → yellow, pairs → the third channel's colour, all three → white), mirrored for the floor; (C) keep the
+  true-colour / per-byte image and overlay the marker only on clipped pixels. Lean: **B** — for colour
+  work, *which* channel is the whole point.
+- **Both ends** — crushed floor *and* blown ceiling, per channel. Keep both.
+- Legible colour code + thresholds (exact 0/max vs a near-threshold) TBD.
+
+Ties to the per-byte colour work (#7) and the camera-evaluation use in `MOTIVATION.md` (blown channels are
+a core thing to catch). Independent of the per-byte swap itself.
+
+### 19. Auto display limits — ZScale + percentile clipping (scale pickers, not transfer functions)
+Robust, automatic black/white-point selection for the **scale** — more ways to set `S.scaleMin` / `S.scaleMax`,
+alongside the existing **fit** (data min/max) and **full** (`0…max`) presets and the user-settable **custom**
+range (#13). Keep the distinction sharp: these are **limit pickers**, orthogonal to and composable with the
+log / parabolic / gamma / asinh **transfer functions** — pick the range here, then whatever transfer function
+remaps *within* it. They are not curves and do not belong in the function cycle.
+- **Percentile / percentage clipping** — put the black / white points at settable low / high percentiles (e.g.
+  1 % / 99 %) of the value distribution, ignoring outliers. Cheap: build a histogram (or sort a subsample) and
+  read the cut points. A few hot / dead pixels then stop blowing the whole range the way raw min/max (**fit**)
+  does.
+- **ZScale** (IRAF / DS9 algorithm) — sample the image, sort the samples, fit a line to the central portion of
+  the sorted values, derive `z1` / `z2` from the median and the fitted slope scaled by a contrast factor.
+  Purpose-built for high-dynamic-range / astronomical data where the signal of interest occupies a thin slice
+  of the range; robust to the bright tail that wrecks min/max.
+- **Fit:** both slot into the existing scale-mode machinery — add them as scale presets next to fit / full /
+  custom; each just computes `scaleMin` / `scaleMax`, then `recalcScale` (colorbar + readout follow).
+  Subsample for speed on large images (both are `O(sample)`): percentile needs a histogram / partial sort,
+  ZScale the line-fit.
+- Pairs naturally with the high-bit-depth pipeline (#5), where plain min/max is least useful (huge ranges,
+  sparse signal), and with the WB-past-max case (#15) where the nominal ceiling no longer bounds the data.
+
+### 20. Alternative transfer functions (gamma / asinh / normalized log) — CAPTURED FOR CONSIDERATION, not planned
+Standard image-stretch curves surveyed against pxlpeep's own log / parabolic. **Decision (2026-08-02): keep
+what we have — no change, no additions.** The current parabolic + log brighten/darken are deliberately
+*drastic*, arrived at through experimentation, and do the job; these are recorded only so the option is
+documented, not because anything is wrong with the existing set. Revisit only if a concrete need appears.
+
+Normalized forms below use input `x ∈ [0,1]` (the value after the scale maps it in) → output `y ∈ [0,1]`; `a`
+is the primary knob (`b`, `c`, … if more were ever needed — none of these need a second). For reference,
+pxlpeep's own two in that same normalized space:
+- **Parabolic (current):** `y = 2(1−a)x² + (2a−1)x`, clamped. `a` = dip (brighten); darken uses `1/a`;
+  `a = 1` → identity. (Derived from `parabolicResponse` in `content/main.js`; verified to match numerically.)
+- **Log (current):** `y ∝ log₁₀(a²·x)`, floored at 0 then min–max rescaled. `a` = dip; brighten multiplies
+  (`a²·x`), darken divides (`x∕a²`). The `a²` mainly sets where the dark end clips to black — it cancels out of
+  the rescaled shape — so this never reaches identity and is the most aggressive shadow-lift of the set (the
+  reason "more drastic" is by design).
+
+The surveyed alternatives, for the record:
+- **Gamma / power** — `y = xᵃ`. `a` = exponent; `a < 1` brightens, `a > 1` darkens, `a = 1` linear. One
+  monotonic knob spans *both* directions (no separate brighten/darken modes), and it subsumes √ (`a = 0.5`) and
+  x² (`a = 2`). The tidiest single-control option if we ever unified the family.
+- **Normalized log (DS9 / astropy `LogStretch`)** — `y = log(1 + a·x) ∕ log(1 + a)`. `a` = strength (astropy
+  default 1000). Endpoint-clean (defined at `x = 0` via the `+1`, pinned to `y(1) = 1`) and genuinely tunable —
+  the better-behaved cousin of the current log. `a → 0` → linear. Brighten-only (darken is its inverse,
+  "power-dist").
+- **Asinh (Lupton / DS9 `AsinhStretch`)** — `y = asinh(x∕a) ∕ asinh(1∕a)`, with `asinh(z) = ln(z + √(z²+1))`.
+  `a` = soft-knee location (astropy default ~0.1). Linear for `x ≪ a`, logarithmic for `x ≫ a` — the only curve
+  here that stays *linear near zero*, so it lifts faint detail without exploding noise and handles signed /
+  near-zero data gracefully (relevant once the float pipeline #5 lands). `a → ∞` → linear; `sinh` is the darken
+  mirror.
+
+These are **scale-independent shape choices**, orthogonal to the auto-limit pickers in #19 (ZScale / percentile
+set the *range*; these remap *within* it). If ever revisited: **gamma** is the most attractive as a unifier (one
+knob, both directions), and **asinh** is the one that would add a genuinely new capability the current set lacks
+(linear-near-zero, signed-data-friendly) — most relevant alongside the float / diverging-palette work (#5, #7).
+
 ## Platforms
 
 ### Tauri desktop wrapper
