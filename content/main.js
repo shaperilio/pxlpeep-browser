@@ -1109,11 +1109,8 @@ function drawColorbar(ctx, ow, oh) {
 
   let title=PALETTE_NAMES[S.palette];
   const ds=S.dipFactor.toFixed(3);
-  if(S.imgFn===ImgFn.LogDarken)             title+=` log darken (${ds})`;
-  if(S.imgFn===ImgFn.LogBrighten)           title+=` log brighten (${ds})`;
-  if(S.imgFn===ImgFn.ParabolicDarken)       title+=` parabolic darken (${ds})`;
-  if(S.imgFn===ImgFn.ParabolicBrighten)     title+=` parabolic brighten (${ds})`;
-  if(S.scaling===Scaling.Fit)               title+=" fit";
+  if(S.imgFn!==ImgFn.OneToOne) title+=` ${FN_NAMES[S.imgFn]} (${ds})`;
+  if(S.scaling===Scaling.Fit)  title+=" fit";
 
   const minTxt=S.scaleMin.toFixed(1), maxTxt=S.scaleMax.toFixed(1);
 
