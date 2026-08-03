@@ -10,14 +10,19 @@
 // Uses the chrome.* namespace with callbacks so the one file works in both
 // Chrome and Firefox.
 
-// Register the menus once. onInstalled fires on install and update; removeAll
-// first so an update can't hit duplicate-id errors.
+// Register the menus. `onInstalled` covers install/update; the top-level call at
+// the bottom re-runs on every service-worker startup so that under `"incognito":
+// "split"` the SEPARATE incognito SW instance — which never receives onInstalled —
+// registers its own menus too. Without that, the pxlpeep menu is missing (or its
+// clicks do nothing) in incognito windows. `removeAll` first, and swallow any
+// duplicate-id error if the install + startup paths race.
 //
 // One "pxlpeep" parent with two actions. With 2+ items Chrome force-collapses
 // them into a submenu anyway, so an explicit parent makes both browsers look
 // identical: pxlpeep ▸ View image / Open image in new tab.
-chrome.runtime.onInstalled.addListener(() => {
+function registerMenus() {
   chrome.contextMenus.removeAll(() => {
+    const swallow = () => void chrome.runtime.lastError; // ignore dup-id on a race
     const parent = {
       id: "pxlpeep",
       title: "pxlpeep",
@@ -33,21 +38,23 @@ chrome.runtime.onInstalled.addListener(() => {
         32: "loupe.iconset/icon_32x32.png",
       };
     }
-    chrome.contextMenus.create(parent);
+    chrome.contextMenus.create(parent, swallow);
     chrome.contextMenus.create({
       id: "pxlpeep-view-image",
       parentId: "pxlpeep",
       title: "View image",
       contexts: ["image"],
-    });
+    }, swallow);
     chrome.contextMenus.create({
       id: "pxlpeep-open-image",
       parentId: "pxlpeep",
       title: "Open image in new tab",
       contexts: ["image"],
-    });
+    }, swallow);
   });
-});
+}
+chrome.runtime.onInstalled.addListener(registerMenus);
+registerMenus();
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (!info.srcUrl) return;
