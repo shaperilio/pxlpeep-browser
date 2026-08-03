@@ -25,6 +25,7 @@
   document.documentElement.appendChild(cover);
 
   let settled = false;
+  let timer = 0;
   const settle = (ok) => {
     if (settled) return;
     settled = true;
@@ -48,14 +49,21 @@
   const inject = () => {
     const s = document.createElement("script");
     s.src = chrome.runtime.getURL("content/main.js");
-    s.onload = () => settle(tookOver()); // ran to completion → toolbar exists
-    s.onerror = () => settle(false); // blocked from loading/executing → fall back
+    // onload = main.js executed in the main world, i.e. it was NOT CSP-blocked.
+    // That IS the in-place path — keep it even if the toolbar didn't build (a
+    // main.js runtime error), because redirecting to viewer.html only re-runs the
+    // same script. Only a genuine *block* benefits from the viewer fallback.
+    s.onload = () => settle(true);
+    s.onerror = () => settle(false); // page CSP blocked the script → fall back
     (document.head || document.documentElement).appendChild(s);
+    // Backstop for sandboxes that fire NEITHER load nor error. Time it from
+    // *injection*, not document_start: otherwise a slow/large image load (which
+    // delays DOMContentLoaded, and with it this inject) can burn the whole budget
+    // before main.js even runs — the bug where the same image sometimes took over
+    // in place and sometimes bounced to the viewer. Decide by whether the toolbar
+    // ever appeared.
+    timer = setTimeout(() => settle(tookOver()), 1500);
   };
-
-  // Backstop: some sandbox blocks fire neither load nor error — decide by whether
-  // the toolbar ever showed up.
-  const timer = setTimeout(() => settle(tookOver()), 1000);
 
   if (document.readyState === "loading")
     document.addEventListener("DOMContentLoaded", inject, { once: true });
