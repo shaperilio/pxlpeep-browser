@@ -38,5 +38,8 @@ Notes:
   it at some values and exaggerates it at others.
 - Every fixture here is ≤ 8-bit (or 1-bit); there is **no 16-bit fixture yet** — testing the 16-bit
   pipeline (`ROADMAP.md` Feature #5) will need one added.
-- Browsers can't decode TIFF or CMYK, so those fixtures currently exercise only the desktop build
-  (or the future in-JS TIFF decoder).
+- **No target decodes TIFF or CMYK today — not the browser, and not the desktop build either.** The
+  desktop wraps the same viewer in a system WebView (WebView2 / Chromium on Windows), which has the
+  same image-codec support as a browser — and Chromium has no TIFF decoder. So `.tif` / CMYK fixtures
+  load on *neither* target until the in-JS decoder lands (`ROADMAP.md` #5). (Confirmed on the desktop
+  smoke test — see `DESKTOP-SMOKE-TEST.md`.)

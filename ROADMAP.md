@@ -34,7 +34,7 @@ menu. Do **not** reinstate the reverted inject-on-top model (see CLAUDE.md histo
 
 ## Features
 
-### 1. Animated GIF + modern animated variants
+### 1. Animated GIF + modern animated variants — NEEDS DESIGN
 Support multi-frame images with **all existing pxlpeep functionality**, plus
 **frame-by-frame forward/backward** navigation.
 - Also cover animated **WebP**, **APNG**, **animated AVIF**. Investigate **Live Photos /
@@ -46,15 +46,17 @@ Support multi-frame images with **all existing pxlpeep functionality**, plus
   per-frame decode (`decode({frameIndex})`). Each decoded frame flows into the existing
   pixel pipeline (Float32 upload, min/max, palette, WB, readout).
 
-### 2. Video
+### 2. Video — NEEDS DESIGN
 Same pxlpeep functionality on video, plus frame-by-frame forward/backward.
 - **Approach options:** `<video>` + `requestVideoFrameCallback` for playback + draw current
   frame to a texture; or **WebCodecs `VideoDecoder`** for precise per-frame access
   (`<video>.currentTime` seeking is not frame-accurate). Pixel analysis runs on the current
   frame.
 
-### Shared architecture note for #1 and #2
-Both turn pxlpeep from a single-image inspector into a **frame-sequence inspector**. Needs:
+### Shared architecture note for #1 and #2 — the design gate
+Both are **NEEDS DESIGN**: they turn pxlpeep from a single-image inspector into a **frame-sequence
+inspector**, which is a real architecture shift, not a drop-in. Settle the open questions below (esp. the
+per-frame-vs-locked scale call and the frame-navigation UX) before building either. Needs:
 - A "current frame" concept in `S`, frame navigation (keys + toolbar: next/prev frame,
   maybe play/pause), and re-running the analysis pipeline per frame.
 - WebCodecs (`ImageDecoder`/`VideoDecoder`) is the unifying modern API for both. Check
@@ -112,9 +114,23 @@ any high-bit-depth source is silently truncated to 8 bits — a real lost capabi
 scientific / medical / RAW images, even if much of pxlpeep's value is in the features that already
 work fine at 8-bit. **No reason to cap at 16-bit** — design for 16, **32-bit, and eventually
 floating-point** images too.
-- **Approach:** a real in-JS decoder (TIFF / PNG-16 → `Uint16`/`Float32`, later float) feeding the
-  existing Float32 GPU texture path. The shader's `uMaxRaw` machinery is already threaded for it
-  (the "dead generality" in CLAUDE.md). Pairs with TIFF support (`PARITY.md` §6).
+- **Decoder — PLAN OF RECORD: vendor `geotiff.js`** (MIT, pure JS, no wasm; mapping / geospatial
+  pedigree). `readRasters()` returns **native-bit-depth typed arrays** — `Uint16Array` / `Float32Array`
+  / `Float64Array` — feeding straight into the existing Float32 GPU texture path (the shader's `uMaxRaw`
+  "dead generality" is already threaded for it). Robust where it counts: LZW / Deflate / PackBits, tiled
+  + BigTIFF, horizontal predictors, true float samples. Ships a prebuilt UMD bundle exposing a `GeoTIFF`
+  global, so we **vendor one reviewed file** (`content/vendor/geotiff.js`) loaded before `main.js`
+  (viewer.html + the takeover path) — **no bundler, no build step, CSP-clean** (pure JS, no wasm /
+  `SharedArrayBuffer`); its async API fits `getSourceBlob`. **This is the project's first runtime
+  dependency** — when it lands, soften `CLAUDE.md`'s "zero dependencies" to "one vendored decoder, still
+  no build step." Pairs with TIFF support (`PARITY.md` §6).
+  - **Rejected alternatives:** hand-rolling (scope + maintenance we don't want to own); UTIF.js (tiny,
+    but its convenience output is 8-bit RGBA — fights the native-bit-depth goal); wasm-vips (~4.6 MB +
+    requires `SharedArrayBuffer` / cross-origin isolation — too heavy for a viewer).
+  - **Companion:** real 16-bit **PNG** values (not canvas-truncated) via **UPNG.js** (Photopea, MIT,
+    single file) if/when wanted — separate from the TIFF path.
+  - geotiff gives the **declared** bit depth for free (it's in the TIFF header); inferring the *true
+    dynamic range* (a 16-bit file holding 12/14-bit data) is the separate research bit below.
 - **Need high-bit-depth test images — we have none** (every current fixture is ≤ 8-bit; see
   `test_images/README.md`). Key subtlety: **bit depth is not recoverable from the raw bytes** — a
   "fully white" 14-bit image and a "very bright" 16-bit image are byte-identical on disk. ImageJ's
@@ -180,10 +196,13 @@ today just `isDesktop:true` — and inherit the rest. Output features route thro
   `rgb_user_linear_grey.png`. Polish: a per-method `env.save` override in `desktop.js` calling the
   Tauri dialog + fs plugins for a real Save-As (pick location/name, drop the download flyout).
 
-### 7. Perceptually-uniform / cognitive-response palettes
-The current palettes (`buildLUT`, ported from the C++ `colormapper.h`) were designed ad hoc for
-specific past applications. Add palette(s) grounded in human perception, where equal *value* steps
-map to equal *perceived* steps.
+### 7. Perceptually-uniform / cognitive-response palettes — sequential maps done enough for now
+`CET-L07` landed (perceptually-uniform blue→magenta→white, per-byte-safe; the `colourmaptest.png` fixture
+was added to judge maps). **Decision (2026-08-02): no more sequential / greyscale perceptual maps for now —
+we're good.** The ad-hoc `buildLUT` palettes (ported from the C++ `colormapper.h`) plus CET-L07 cover the
+need. The greyscale / viridis-family bullets below are retained only as the design method if we ever
+revisit; what stays genuinely open are the two that depend on *other* work first — **diverging** (gated on
+the float pipeline, #5) and **ternary / isoluminant** (needs a new multi-channel colour path, #17).
 - **Perceptually-uniform greyscale:** map so the perceived lightness difference between any two
   grey values is constant across dark→light (constant ΔL\* in CIE L\*a\*b\*, converted to sRGB),
   instead of the naive linear 0–255 ramp whose perceived contrast is uneven.
@@ -435,6 +454,32 @@ set the *range*; these remap *within* it). If ever revisited: **gamma** is the m
 knob, both directions), and **asinh** is the one that would add a genuinely new capability the current set lacks
 (linear-near-zero, signed-data-friendly) — most relevant alongside the float / diverging-palette work (#5, #7).
 
+### 21. Open RAW containers — DNG-scoped, sensor-plane inspection (builds on #5)
+Open **digital-negative RAW as high-bit-depth sensor data** — the raw CFA (Bayer) mosaic shown as a
+single-channel 16-bit image (actual per-photosite values, saturation, noise). That's the pixel-inspector view
+that fits pxlpeep's camera-eval purpose — **not** a RAW *converter*: we deliberately skip develop-to-RGB
+(demosaic + WB + colour matrix + gamma). Demosaicing stays the separate optional colour step (far side).
+
+**Plan of record — write our own, scoped to DNG, on top of `geotiff.js` (#5).** RAW files are TIFF/EP-based
+containers, so the container layer is just TIFF IFD reading — which geotiff already does. The user's instinct
+holds: for the container it really is "just read the header."
+- **Uncompressed DNG:** geotiff hands back the CFA plane as `Uint16Array` directly → display via the #5
+  16-bit pipeline. Nearly free once #5 lands.
+- **Compressed DNG (+ Canon lossless):** add a **lossless-JPEG decoder** (ITU-T.81 Huffman — a *different*
+  codec from the baseline JPEG that browsers / geotiff handle; bounded, ~few hundred LOC). Opens most DNGs.
+- Read `CFAPattern` / `BlackLevel` / `WhiteLevel` to interpret the plane; feed the existing Bayer-quad WB and
+  (later) demosaicing.
+
+**Scope discipline is the point:** DNG is an open, documented Adobe standard, and the sensor-plane focus keeps
+us on the easy side of the compression wall. We do **not** chase proprietary CR3 / NEF / ARW / etc. — each is
+its own reverse-engineering rabbit hole (the reason libraw/dcraw are enormous). Vendoring **libraw-wasm** would
+open every camera but is explicitly **rejected**: multi-MB wasm blob, CSP `wasm-unsafe-eval` / `SharedArrayBuffer`
+friction, and it develops to RGB rather than exposing sensor values — wrong shape and weight for this project.
+
+- **Depends on #5** (geotiff container reading + the Float32 / 16-bit pipeline). Pairs with **demosaicing**
+  (far side) for the optional colour view. **Distinct from** the far-side *headerless* raw — those carry no
+  header at all; this is the opposite, a fully self-describing container.
+
 ## Platforms
 
 ### Tauri desktop wrapper
@@ -471,7 +516,8 @@ extensions). `content/main.js` is reused **verbatim** inside the Tauri shell —
   `test_images/README.md`. Each is purpose-built (format, bit depth, channels, transparency,
   tiny/odd dimensions, CMYK). Remaining: confirm/annotate the exact "what each checks" (the author
   designed them), extend the set, and wire them into the eventual CI/Playwright harness. Several are
-  TIFF/CMYK, which the browser can't decode today — ties into Feature #5 (16-bit / TIFF decoder).
+  TIFF/CMYK, which **neither target** decodes today (the desktop's WebView2 is Chromium, same codecs as
+  the browser — no TIFF) — ties into Feature #5 (16-bit / TIFF decoder).
 
 ## Polish / store prep
 
