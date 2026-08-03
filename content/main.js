@@ -1522,7 +1522,13 @@ function drawHelp(ctx, ow, oh) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 function onKeyDown(e) {
-  if (e.target.tagName==="INPUT"||e.target.tagName==="TEXTAREA") return;
+  // Skip hotkeys only while a TEXT-entry field (e.g. the units-calibration input) has focus — NOT
+  // when a non-text control like the Force-JPEG checkbox holds focus. Otherwise clicking that
+  // checkbox leaves it focused and the guard swallows the next Ctrl+S: the app's preventDefault
+  // never runs, so the browser's own save-page dialog appears instead of saving the image.
+  const et=e.target, etag=et.tagName;
+  if (etag==="TEXTAREA" || et.isContentEditable ||
+      (etag==="INPUT" && !/^(checkbox|radio|button|submit|reset)$/.test(et.type))) return;
   const ctrl=e.ctrlKey||e.metaKey, shift=e.shiftKey, alt=e.altKey;
   let handled=true;
 
