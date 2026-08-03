@@ -480,6 +480,48 @@ friction, and it develops to RGB rather than exposing sensor values — wrong sh
   (far side) for the optional colour view. **Distinct from** the far-side *headerless* raw — those carry no
   header at all; this is the opposite, a fully self-describing container.
 
+### 22. LRU WebGL-context budget — stop hogging the ~16-context pool
+Each pxlpeep tab holds a live WebGL context, and browsers cap how many can be live at once (Chrome ~16;
+Firefox its own, GPU-dependent). Enough open pxlpeep tabs starve each other — and other sites — of contexts,
+producing the "WebGL2 lost / unavailable" states (now *surfaced* with a clear message + a `webglcontextlost`
+listener in `content/main.js`, but not yet *mitigated*).
+
+**Idea (author's):** cap pxlpeep at **N live contexts, LRU-evicted** (default **4**). The N most-recently-viewed
+tabs keep their context, so flipping between a couple of tabs never flashes; a tab that falls out of the
+top-N **releases** its context to free the slot; on refocus it **re-acquires** — recreate the context and
+re-upload from the retained `S.image.data` (no re-fetch, no re-decode — just the CPU→GPU texture push) — and
+evicts the new least-recently-used tab.
+
+Mechanism / gotchas:
+- **Coordinator = the background service worker**, holding the LRU list of pxlpeep tab IDs. Each tab reports
+  focus via the Page Visibility API (`visibilitychange`); the SW ranks recency and messages tabs to `release`
+  (when they drop past N) or `re-acquire` (on refocus).
+- **State must survive SW eviction** — persist the LRU list in `chrome.storage.session`, **not** an in-memory
+  `Set` (that eviction bug is exactly what killed the reverted inject-on-top design; see CLAUDE.md history).
+- **Main-world bridge:** the in-place `main.js` runs in the page's **main world** and has **no `chrome.*`** —
+  so `release`/`re-acquire` route SW ↔ `takeover.js` (content script) ↔ `main.js` via `window.postMessage`.
+  (The `viewer.html` path has `chrome.runtime` directly, so it's simpler there.)
+- **Release** = deliberately drop the context (`WEBGL_lose_context.loseContext()` or tear down the renderer);
+  **re-acquire** = the same path a `webglcontextrestored` auto-recover would use (rebuild program/buffers/LUT +
+  re-upload the image texture).
+- **Released-tab UX (design):** the 2D overlay (rulers / info / ROI) is WebGL-independent and could stay
+  visible; the image re-appears on refocus. Decide the paused-state look.
+- **N is user-configurable** (see #23): default 4, floor 1, ceiling ≈ browser cap − headroom.
+
+Overlaps the multi-tab work (#4). The send-to-specific-tab playlist (#4) reduces the need (one tab → one
+context), but this budget still helps whenever a user deliberately keeps several pxlpeep tabs open.
+
+### 23. User settings (options page + `chrome.storage`)
+No settings surface exists today. Add one: an extension **options page** (`options_ui`, embedded in the
+browser's extensions page, or a full `options_page`) backed by **`chrome.storage.sync`** (synced across the
+user's devices, ~100 KB quota; fall back to `storage.local` for anything larger). Storage is readable from the
+SW, content scripts, and extension pages — **but not the page main world directly**, so a setting is either
+passed into `main.js` at injection by the content script, or consumed only in the SW / content-script layer.
+
+**Flagship setting: max live WebGL contexts (N)** for the LRU budget (#22) — consumed by the SW, so it needs
+**no** main-world plumbing (clean first case). Other candidates once the plumbing exists: default palette /
+transfer function / scale mode, force-JPEG default, auto-reload default (#14). Start minimal.
+
 ## Platforms
 
 ### Tauri desktop wrapper
