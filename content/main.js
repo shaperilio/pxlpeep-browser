@@ -2118,11 +2118,26 @@ try {
   renderer=new Renderer(glCanvas);
 } catch(e) {
   const msg=document.createElement("div");
-  msg.textContent="pxlpeep: WebGL2 not available. "+e.message;
+  msg.textContent="pxlpeep: WebGL2 not available. "+e.message+
+    " — if pxlpeep was working a moment ago, you may have too many pxlpeep tabs open "+
+    "(browsers cap how many can render at once). Close some and reload.";
   Object.assign(msg.style,{position:"fixed",top:"50%",left:"50%",transform:"translate(-50%,-50%)",
-    color:"#fff",background:"#300",padding:"20px",borderRadius:"8px",fontFamily:"monospace"});
+    color:"#fff",background:"#300",padding:"20px",borderRadius:"8px",fontFamily:"monospace",
+    maxWidth:"80vw",textAlign:"center",lineHeight:"1.5"});
   document.body.appendChild(msg);
 }
+
+// If the browser reclaims our WebGL context mid-use — most often because too many
+// pxlpeep tabs are open (browsers cap how many can be live at once) — surface a clear
+// message instead of a silent freeze. Reloading recreates the context. (ROADMAP #4's
+// send-to-specific-tab model collapses N contexts to ~1 and sidesteps this entirely.)
+glCanvas.addEventListener("webglcontextlost", (e) => {
+  e.preventDefault();
+  setStatus(
+    "pxlpeep lost its WebGL context — most likely too many pxlpeep tabs are open " +
+    "(browsers cap how many can render at once). Close some pxlpeep tabs, then reload this one."
+  );
+}, { once: true });
 
 // Overlay context
 const ovCtx=ovCanvas.getContext("2d");
