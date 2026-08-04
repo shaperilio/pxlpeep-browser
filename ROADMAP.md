@@ -65,8 +65,8 @@ per-frame-vs-locked scale call and the frame-navigation UX) before building eith
   make brightness flicker; a locked/global range is probably wanted — design decision).
 
 ### 3. Close pxlpeep (revert to native image handling)
-An in-viewer way out (toolbar ✕ and/or a key, e.g. `Esc`) that tears pxlpeep down and gives
-the tab back to the browser's native image view.
+An in-viewer way out (toolbar ✕ and/or a key) that tears pxlpeep down and gives the tab back to the
+browser's native image view.
 - **In-place path:** straightforward teardown — remove the canvases/toolbar/status overlay,
   un-hide the native `<img>`, restore the body styles, unhook the window listeners
   (keydown/keyup/resize), clear `window.__pxlpeepActive`.
