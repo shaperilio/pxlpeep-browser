@@ -97,7 +97,10 @@ Desktop vs browser split (the portability discipline for the Tauri work):
   snapping.
 - **Browser adaptation:** rather than one viewer per native image URL, **manage our own pxlpeep
   tabs** — a context-menu "send image to pxlpeep" appends to a *cycling playlist* in a
-  persistent pxlpeep tab; cross-tab sync via the background service worker as a delta relay.
+  persistent pxlpeep tab; cross-tab sync via the background service worker as a delta relay. Context
+  menu might include, for example, "pxlpeep -> view to the right" or similar, which sends the
+  selected image to the next pxlpeep tab to the right of the current tab, thus allowing the user to
+  organize things by leveraging the browser's built-in tab organization tools.
 - **Shared core:** the sync engine (delta model + selectable groups) and frame/image-list
   navigation live in `content/main.js` so both targets reuse them. This is a real evolution of
   the single-`S`-object model → multiple `S` instances + a sync layer.
