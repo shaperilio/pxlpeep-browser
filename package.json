@@ -6,11 +6,16 @@
   "scripts": {
     "check": "npm run check:js && npm run check:manifest",
     "check:js": "node --check content/main.js && node --check content/takeover.js && node --check content/desktop.js && node --check background/worker.js && node --check viewer.js",
-    "check:manifest": "node -e \"JSON.parse(require('fs').readFileSync('manifest.json','utf8'))\"",
+    "check:manifest": "node -e \"JSON.parse(require('fs').readFileSync('manifest.base.json','utf8'))\"",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "stamp": "node scripts/stamp-version.js",
-    "version": "node scripts/stamp-version.js && git add package.json package-lock.json manifest.json src-tauri/tauri.conf.json src-tauri/Cargo.toml content/main.js",
+    "check:prereqs": "node scripts/check-prereqs.js",
+    "prebuild": "node scripts/check-prereqs.js",
+    "build": "node scripts/build-extension.js",
+    "build:chrome": "node scripts/build-extension.js chrome",
+    "build:firefox": "node scripts/build-extension.js firefox",
+    "version": "node scripts/stamp-version.js && git add package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml content/main.js",
     "desktop": "tauri dev",
     "desktop:build": "tauri build",
     "tauri": "tauri"

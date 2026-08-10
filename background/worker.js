@@ -39,18 +39,24 @@ function registerMenus() {
       };
     }
     chrome.contextMenus.create(parent, swallow);
-    chrome.contextMenus.create({
-      id: "pxlpeep-view-image",
-      parentId: "pxlpeep",
-      title: "View image",
-      contexts: ["image"],
-    }, swallow);
-    chrome.contextMenus.create({
-      id: "pxlpeep-open-image",
-      parentId: "pxlpeep",
-      title: "Open image in new tab",
-      contexts: ["image"],
-    }, swallow);
+    chrome.contextMenus.create(
+      {
+        id: "pxlpeep-view-image",
+        parentId: "pxlpeep",
+        title: "View image",
+        contexts: ["image"],
+      },
+      swallow,
+    );
+    chrome.contextMenus.create(
+      {
+        id: "pxlpeep-open-image",
+        parentId: "pxlpeep",
+        title: "Open image in new tab",
+        contexts: ["image"],
+      },
+      swallow,
+    );
   });
 }
 chrome.runtime.onInstalled.addListener(registerMenus);

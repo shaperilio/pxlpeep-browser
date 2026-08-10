@@ -568,14 +568,17 @@ extensions). `content/main.js` is reused **verbatim** inside the Tauri shell —
 
 - ✅ Fixed the manifest icon-size mismatch: the `48` slot pointed at `icon_64x64.png`; the keys now
   state each file's true size (`16 / 32 / 64 / 128`, plus `256`), so Chrome/Firefox scale honestly.
-- **Per-browser manifests at packaging time.** One MV3 manifest serves both browsers via a
-  dual `background` key (`service_worker` for Chrome, `scripts` for Firefox — Firefox still
-  has no background service worker, confirmed 2026). Chrome loads and runs fine but shows a
-  cosmetic warning: `'background.scripts' requires manifest version of 2 or lower`. It's
-  harmless (Chrome ignores the key and uses the service worker) and left as-is for dev. The
-  clean fix is to emit per-browser packages that each drop the other browser's key — which
-  we need for the two stores anyway (Chrome Web Store vs AMO), so fold it into store
-  packaging rather than bolting on a build step now.
+- ✅ **Per-browser build** — done. `npm run build` (`scripts/build-extension.js`) produces both
+  packages, `build/chrome/` and `build/firefox/`, each a complete unpacked extension (generated
+  manifest from `manifest.base.json` + version from `package.json` + the shared source files). Pure
+  Node stdlib, no `npm install`; `build/` is gitignored; full instructions in **`BUILD.md`**. The
+  two forced-divergent keys: **background** (`service_worker` for Chrome, `scripts` for Firefox — no
+  Firefox background SW as of 2026) and **incognito** (Chrome needs `"split"` to load viewer.html in
+  incognito; Firefox rejects `"split"` → `not_allowed`, disabling private windows, so it omits the
+  key → `"spanning"`). Building per-browser also drops Chrome's cosmetic `'background.scripts'
+  requires manifest version of 2 or lower` warning. Remaining for store *distribution*: **zip each
+  `build/<browser>/`** for the Chrome Web Store / AMO uploads (+ AMO signing) — the package content
+  is correct per target; only the zip + upload step is left (see the publish workflow below).
 - **Publish workflow (ideally automated) + release-time version bump.** Tie packaging to a single
   release action: compute the next CalVer from the date (`YY.M.micro`, micro = the next release that
   month), run `npm version <v> --no-git-tag-version` to bump + stamp every file (see CLAUDE.md →
@@ -584,7 +587,8 @@ extensions). `content/main.js` is reused **verbatim** inside the Tauri shell —
   (derive today's `YY.M.micro` from the current version) would make the bump fully hands-off.
   **Until this exists the version stays pinned** (currently `26.7.0`): no hand-bumping per change
   while the project is single-user — a version change should mean "a release went out", not "a
-  commit landed". Depends on the per-browser-manifest split above.
+  commit landed". The per-browser build it builds on now exists (`npm run build` → `build/chrome`,
+  `build/firefox`); the publish workflow adds the zip-per-target + upload (+ AMO signing) around it.
 - Write a privacy policy (required by stores given broad host permissions; states no data
   collected, only fetches the image you opened).
 - Chrome Web Store & Firefox AMO: both now MV3. Chrome is a one-time $5 registration; AMO

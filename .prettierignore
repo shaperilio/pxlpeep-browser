@@ -10,8 +10,9 @@ package-lock.json
 # line-for-line correspondence with pxlpeep's C++ source that makes the port maintainable.
 content/main.js
 
-# Hand-aligned icon table; prettier collapses the alignment.
-manifest.json
+# Hand-aligned icon table; prettier collapses the alignment. (manifest.json itself is
+# generated from this by scripts/build-manifest.js and gitignored.)
+manifest.base.json
 
 # Docs are hand-wrapped prose.
 *.md

@@ -1,7 +1,6 @@
 {
   "manifest_version": 3,
   "name": "pxlpeep",
-  "version": "26.7.0",
   "description": "Power-user image inspector: palette mapping, white balance, rulers, ROI, EXIF, channel selection.",
   "icons": {
     "16":  "loupe.iconset/icon_16x16.png",
@@ -9,10 +8,6 @@
     "64":  "loupe.iconset/icon_64x64.png",
     "128": "loupe.iconset/icon_128x128.png",
     "256": "loupe.iconset/icon_256x256.png"
-  },
-  "background": {
-    "service_worker": "background/worker.js",
-    "scripts": ["background/worker.js"]
   },
   "content_scripts": [
     {
@@ -23,7 +18,6 @@
   ],
   "permissions": ["contextMenus"],
   "host_permissions": ["<all_urls>"],
-  "incognito": "split",
   "web_accessible_resources": [
     { "resources": ["content/main.js"], "matches": ["<all_urls>"] }
   ]

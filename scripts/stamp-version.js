@@ -45,8 +45,9 @@ if (micro > 65535) bad(`micro ${micro} > 65535 (Chrome / MSI field limit)`);
 // [file, regex whose two capture groups bracket the version value]. String-replace
 // only — never JSON.parse + stringify — so hand-aligned files (manifest.json) and
 // comments (Cargo.toml) keep their exact shape.
+// NB: manifest.json is NOT here — it's generated per-browser by scripts/build-extension.js,
+// which injects the version straight from package.json (so it can't drift). See CLAUDE.md.
 const targets = [
-  ["manifest.json", /("version"\s*:\s*")[^"]*(")/],
   ["src-tauri/tauri.conf.json", /("version"\s*:\s*")[^"]*(")/],
   ["src-tauri/Cargo.toml", /(\[package\][\s\S]*?\nversion = ")[^"]*(")/],
   ["content/main.js", /(const PXLPEEP_VERSION = ")[^"]*(")/],

@@ -12,11 +12,19 @@ Ported from the C++ original by shaperilio. Provenance noted at `content/main.js
 
 ## Architecture
 
-- **Manifest V3**, cross-browser (Chrome + Firefox) from one manifest, `chrome.*` namespace
-  (no polyfill). Background is an ephemeral service worker (Chrome) / event page (Firefox) via
-  a dual `background` key (`service_worker` + `scripts`). Permissions are just `contextMenus` +
-  `host_permissions:["<all_urls>"]` — the content script's `matches:["<all_urls>"]` drives
-  injection; the host permission is only for the viewer's cross-origin image fetch.
+- **Manifest V3**, cross-browser (Chrome + Firefox), `chrome.*` namespace (no polyfill).
+  **`npm run build` produces both packages** — `build/chrome/` and `build/firefox/`, each a complete
+  loadable unpacked extension (`scripts/build-extension.js`; pure Node stdlib, no `npm install`
+  needed; `build/` is gitignored — see **`BUILD.md`**). The manifest is generated per-browser from
+  `manifest.base.json` (the committed source of common keys) with the version injected from
+  `package.json`, so there's **no committed `manifest.json` and no per-browser flipping**. The two
+  browsers diverge on exactly two keys the build injects: **background** (Chrome `service_worker`,
+  Firefox `scripts` — Firefox still has no background SW as of 2026) and **incognito** (Chrome
+  `"split"` so viewer.html loads in incognito tabs; Firefox omits it — Firefox rejects `"split"` →
+  `not_allowed`, disabling private windows — and defaults to `"spanning"`, which already allows
+  extension pages there). Permissions are just `contextMenus` + `host_permissions:["<all_urls>"]`
+  — the content script's `matches:["<all_urls>"]` drives injection; the host permission is only
+  for the viewer's cross-origin image fetch.
 - **`content/takeover.js`** — the takeover. A `document_start`, `<all_urls>` content script. It
   checks `document.contentType` and does nothing unless the page is a standalone image
   document. On one, it covers the native view (a CSSOM-styled `<div>`, not a CSP-blockable
@@ -91,9 +99,12 @@ by the hybrid fallback above.
 
 Cross-browser gotchas learned here: modern **Chrome also exposes the `browser` global**, so it
 can't distinguish Chrome from Firefox (use a UA sniff for Firefox-only bits like menu `icons`).
-**Firefox has no background service worker** (as of 2026), hence the dual `background` key —
-which makes Chrome log a harmless `'background.scripts' requires manifest version of 2 or lower`
-warning; the real fix is per-browser manifests at store-packaging time (see `ROADMAP.md`).
+**Firefox has no background service worker** (as of 2026) and **rejects `incognito:"split"`**
+(falling back to `not_allowed`, which disables the extension in private windows). Both are why
+the manifest is **generated per-browser** (`build-extension.js`) rather than shared — a single
+file can't satisfy both, and splitting also drops Chrome's cosmetic `'background.scripts'
+requires manifest version of 2 or lower` warning. Menu registration also runs on **SW startup**
+(not just `onInstalled`) so the separate split-incognito SW instance registers its own menus.
 
 ## Testing / verification
 
@@ -103,12 +114,13 @@ purpose-built to exercise formats / bit depths / channels / transparency / odd s
 **is** committed, but it is **dev tooling only** — the extension itself still has zero dependencies and
 no build step; nothing in `node_modules` ships.
 
-- **`npm run check`** — the gate: `node --check` on all four JS files plus a `manifest.json`
-  JSON-parse. Run this before handing off a change.
+- **`npm run check`** — the gate: `node --check` on all four JS files plus a `manifest.base.json`
+  JSON-parse. Run this before handing off a change. (The per-browser `manifest.json` is generated
+  into `build/` by `npm run build` — see `BUILD.md`.)
 - **`npm run format`** / **`format:check`** — prettier. `.prettierignore` exempts
   **`content/main.js`** deliberately: it mirrors the dense C++ original closely, and prettier
   would inflate it ~1570 → ~2370 lines and rewrite half of it, destroying the line-for-line
-  correspondence that makes the port maintainable. `manifest.json` (hand-aligned icon table) and
+  correspondence that makes the port maintainable. `manifest.base.json` (hand-aligned icon table) and
   `*.md` (hand-wrapped prose) are exempt too. Everything else is prettier-clean — keep it that way.
 
 **Playwright verification pattern:** spin a local `http` server that serves the extension files
@@ -140,8 +152,8 @@ root, and delete the harness after (but *do* commit the resulting `package.json`
   rule. **`package.json` is the single source of truth.** To bump, run **one command**:
   `npm version <v> --no-git-tag-version` (e.g. `npm version 26.7.1 --no-git-tag-version`) — it
   bumps package.json, runs `scripts/stamp-version.js` to propagate the value to `package-lock.json`,
-  `manifest.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and the `PXLPEEP_VERSION`
-  constant in `content/main.js`, and git-stages them all — but writes **no tag or commit**, so the
+  `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and the `PXLPEEP_VERSION` constant in
+  `content/main.js`, and git-stages them all — but writes **no tag or commit**, so the
   bump rides in your next normal commit. (That `main.js` constant exists because the main-world
   injection has no `chrome.runtime` to read the manifest.) `npm run stamp` is the underlying
   propagator for a hand-edited version. The stamp validates every field limit and fails loudly on a
