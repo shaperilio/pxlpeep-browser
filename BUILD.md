@@ -83,8 +83,8 @@ use these extension manifests. See `src-tauri/README.md`.
 
 - `manifest.base.json` — the committed source of the manifest keys common to both browsers.
 - `scripts/build-extension.js` — copies the extension files into `build/<target>/` and writes a
-  per-browser `manifest.json`: Chrome gets `background.service_worker` + `incognito: "split"`;
-  Firefox gets `background.scripts` and omits `incognito` (it rejects `"split"`, and the `"spanning"`
-  default already works in private windows). The version is injected from `package.json`.
+  per-browser `manifest.json`. The only difference is `background`: Chrome `service_worker`, Firefox
+  `scripts`. Both use the default `"spanning"` incognito mode (see `CLAUDE.md` for why not `"split"`).
+  The version is injected from `package.json`.
 - The version lives only in `package.json` and is stamped elsewhere by `scripts/stamp-version.js`
   (see `CLAUDE.md` → Conventions → Versioning). Bumping is release-gated — don't bump per change.

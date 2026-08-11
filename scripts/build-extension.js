@@ -2,10 +2,11 @@
 // complete, loadable unpacked extension (generated manifest + the shared source files). No more
 // swapping a single root manifest.json per browser.
 //
-// The two browsers diverge on exactly two manifest keys (see manifest.base.json / CLAUDE.md):
+// The two browsers diverge on one manifest key (see manifest.base.json / CLAUDE.md):
 //   - background: Chrome `service_worker`, Firefox `scripts` (no Firefox background SW as of 2026).
-//   - incognito:  Chrome `"split"` (needed to load viewer.html in incognito tabs); Firefox omits it
-//                 (rejects "split" → not_allowed; the "spanning" default already works there).
+// Both use the default "spanning" incognito mode (no `incognito` key): Firefox rejects "split", and
+// under split Chrome's separate incognito SW can't reliably register the context menu — so the menu
+// is handled in the shared SW and incognito clicks route to the raw image URL (see background/worker.js).
 // The version comes from package.json (the single source of truth) — the manifest is fully generated.
 //
 // Pure Node stdlib: no npm install needed to build. Usage:
@@ -52,8 +53,6 @@ function manifestFor(target) {
     content_scripts: base.content_scripts,
     permissions: base.permissions,
     host_permissions: base.host_permissions,
-    // Chrome-only: Firefox rejects "split" (→ not_allowed) and is fine on the "spanning" default.
-    ...(target === "chrome" ? { incognito: "split" } : {}),
     web_accessible_resources: base.web_accessible_resources,
   };
 }
@@ -62,10 +61,23 @@ function build(target) {
   const out = path.join(root, "build", target);
   fs.rmSync(out, { recursive: true, force: true });
   fs.mkdirSync(out, { recursive: true });
+  const BOM = Buffer.from([0xef, 0xbb, 0xbf]);
   for (const f of FILES) {
+    const src = path.join(root, f);
     const dst = path.join(out, f);
     fs.mkdirSync(path.dirname(dst), { recursive: true });
-    fs.copyFileSync(path.join(root, f), dst);
+    // content/main.js carries non-ASCII UI text (…, ×, ‹ ›, °, emoji). It's loaded as an external
+    // <script> where the encoding often isn't declared — notably the in-place takeover injects it
+    // into the page's image document — and Firefox then decodes it as Latin-1 → mojibake. Prepend a
+    // UTF-8 BOM (highest-priority encoding signal) to the shipped copy; the source stays BOM-free so
+    // an editor can't silently strip it.
+    if (f === "content/main.js") {
+      const bytes = fs.readFileSync(src);
+      const hasBom = bytes.length >= 3 && bytes.subarray(0, 3).equals(BOM);
+      fs.writeFileSync(dst, hasBom ? bytes : Buffer.concat([BOM, bytes]));
+    } else {
+      fs.copyFileSync(src, dst);
+    }
   }
   for (const d of DIRS) {
     fs.cpSync(path.join(root, d), path.join(out, d), { recursive: true });

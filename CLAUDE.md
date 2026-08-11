@@ -18,13 +18,12 @@ Ported from the C++ original by shaperilio. Provenance noted at `content/main.js
   needed; `build/` is gitignored — see **`BUILD.md`**). The manifest is generated per-browser from
   `manifest.base.json` (the committed source of common keys) with the version injected from
   `package.json`, so there's **no committed `manifest.json` and no per-browser flipping**. The two
-  browsers diverge on exactly two keys the build injects: **background** (Chrome `service_worker`,
-  Firefox `scripts` — Firefox still has no background SW as of 2026) and **incognito** (Chrome
-  `"split"` so viewer.html loads in incognito tabs; Firefox omits it — Firefox rejects `"split"` →
-  `not_allowed`, disabling private windows — and defaults to `"spanning"`, which already allows
-  extension pages there). Permissions are just `contextMenus` + `host_permissions:["<all_urls>"]`
-  — the content script's `matches:["<all_urls>"]` drives injection; the host permission is only
-  for the viewer's cross-origin image fetch.
+  browsers diverge on exactly one key the build injects: **background** (Chrome `service_worker`,
+  Firefox `scripts` — Firefox still has no background SW as of 2026). Both use the default
+  **`"spanning"` incognito mode** (no `incognito` key) — see the incognito context-menu note below.
+  Permissions are just `contextMenus` + `host_permissions:["<all_urls>"]` — the content script's
+  `matches:["<all_urls>"]` drives injection; the host permission is only for the viewer's
+  cross-origin image fetch.
 - **`content/takeover.js`** — the takeover. A `document_start`, `<all_urls>` content script. It
   checks `document.contentType` and does nothing unless the page is a standalone image
   document. On one, it covers the native view (a CSSOM-styled `<div>`, not a CSP-blockable
@@ -99,12 +98,21 @@ by the hybrid fallback above.
 
 Cross-browser gotchas learned here: modern **Chrome also exposes the `browser` global**, so it
 can't distinguish Chrome from Firefox (use a UA sniff for Firefox-only bits like menu `icons`).
-**Firefox has no background service worker** (as of 2026) and **rejects `incognito:"split"`**
-(falling back to `not_allowed`, which disables the extension in private windows). Both are why
-the manifest is **generated per-browser** (`build-extension.js`) rather than shared — a single
-file can't satisfy both, and splitting also drops Chrome's cosmetic `'background.scripts'
-requires manifest version of 2 or lower` warning. Menu registration also runs on **SW startup**
-(not just `onInstalled`) so the separate split-incognito SW instance registers its own menus.
+**Firefox has no background service worker** (as of 2026), which is why the `background` key is
+**generated per-browser** (`build-extension.js`) — `service_worker` for Chrome, `scripts` for
+Firefox; that also drops Chrome's cosmetic `'background.scripts' requires manifest version of 2 or
+lower` warning.
+
+**Incognito is `"spanning"` (the default), and here's why it isn't `"split"`.** Under spanning a
+single shared SW serves normal + incognito windows, so the context menu (registered in
+`onInstalled`) shows in both. But a spanning extension **can't load an extension page
+(viewer.html) into an incognito tab's main frame** — so the menu's normal path (open viewer.html)
+does nothing in incognito. `"split"` *would* let viewer.html load there, but split spins up a
+**separate incognito SW that's lazily started and never receives `onInstalled`**, so it can't
+reliably register the menu — the menu goes *missing* in incognito (worse). So we keep spanning and
+handle it in `worker.js`: **incognito menu clicks navigate to the raw image URL** and let the
+in-place takeover (a content script, which runs in incognito) do the job — covering image
+Content-Types; the rare non-image/CSP-blocked case isn't reachable via the menu in incognito.
 
 ## Testing / verification
 

@@ -571,12 +571,12 @@ extensions). `content/main.js` is reused **verbatim** inside the Tauri shell —
 - ✅ **Per-browser build** — done. `npm run build` (`scripts/build-extension.js`) produces both
   packages, `build/chrome/` and `build/firefox/`, each a complete unpacked extension (generated
   manifest from `manifest.base.json` + version from `package.json` + the shared source files). Pure
-  Node stdlib, no `npm install`; `build/` is gitignored; full instructions in **`BUILD.md`**. The
-  two forced-divergent keys: **background** (`service_worker` for Chrome, `scripts` for Firefox — no
-  Firefox background SW as of 2026) and **incognito** (Chrome needs `"split"` to load viewer.html in
-  incognito; Firefox rejects `"split"` → `not_allowed`, disabling private windows, so it omits the
-  key → `"spanning"`). Building per-browser also drops Chrome's cosmetic `'background.scripts'
-  requires manifest version of 2 or lower` warning. Remaining for store *distribution*: **zip each
+  Node stdlib, no `npm install`; `build/` is gitignored; full instructions in **`BUILD.md`**. The one
+  forced-divergent key: **background** (`service_worker` for Chrome, `scripts` for Firefox — no
+  Firefox background SW as of 2026), which also drops Chrome's cosmetic `'background.scripts' requires
+  manifest version of 2 or lower` warning. Both use the default `"spanning"` incognito mode; the
+  incognito context-menu handling lives in `background/worker.js` (see the incognito note in
+  `CLAUDE.md` for why not `"split"`). Remaining for store *distribution*: **zip each
   `build/<browser>/`** for the Chrome Web Store / AMO uploads (+ AMO signing) — the package content
   is correct per target; only the zip + upload step is left (see the publish workflow below).
 - **Publish workflow (ideally automated) + release-time version bump.** Tie packaging to a single
