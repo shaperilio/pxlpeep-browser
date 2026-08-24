@@ -25,6 +25,12 @@ const FN_NAMES      = ["1:1","log brighten","log darken","parabolic brighten","p
 const NUM_FNS       = FN_NAMES.length;        // single source: transfer-function cycle modulo
 const NUM_PALETTES  = PALETTE_NAMES.length;   // single source: LUT rows, shader row divisor, cycle modulo
 
+// Per-function default dip factor, indexed by ImgFn. Each function keeps its OWN dip: switching to a
+// function loads its last-used value (or this default the first time). Values dialed in on real
+// images by the author; 1:1 ignores dip so its slot is a placeholder.
+//                     1:1   logB    logD    parB    parD    gamma
+const DIP_DEFAULTS  = [  1,   0.21,   9.313,  1.953,  1.563,  0.512 ];
+
 // CET-L07 — Peter Kovesi's perceptually-uniform *linear* blue→magenta→white map (colorcet.com, CC0).
 // Ends near white so all three channels rise → safe under the per-channel byte swap below.
 // 256 RGB triples (R,G,B interleaved) packed base64; verified monotonic + evenly spaced in CIELAB L*.
@@ -66,7 +72,8 @@ const S = {
   // pixel transform
   scaling: Scaling.User,
   imgFn: ImgFn.OneToOne,
-  dipFactor: 1,
+  dipFactor: 1,                    // the CURRENT function's dip; a mirror of dipByFn[imgFn]
+  dipByFn: DIP_DEFAULTS.slice(),   // per-function last-used dip (starts at the defaults)
   userMin: 0, userMax: 255,
   scaleMin: 0, scaleMax: 255,
   scale: 1, offset: 0,
@@ -185,6 +192,25 @@ function applyFn(v, fn, dip, minV, maxV) {
     }
     default: return v;
   }
+}
+
+// "+" always lightens, "−" always darkens the image, regardless of function. dipFactor's effect on
+// brightness differs by function: the *brighten* pair (log/parabolic) gets lighter as dip rises,
+// while the *darken* pair and *gamma* get darker. So translate the requested visual direction into
+// the right dip step. (1:1 ignores dip entirely.)
+function stepDip(lighter) {
+  const dipUpLightens =
+    S.imgFn === ImgFn.LogBrighten || S.imgFn === ImgFn.ParabolicBrighten;
+  const up = lighter === dipUpLightens;
+  S.dipFactor *= up ? 1.25 : 1 / 1.25;
+  S.dipByFn[S.imgFn] = S.dipFactor; // remember this function's dip
+}
+
+// Switch the active transfer function, loading that function's OWN remembered dip factor (its
+// default the first time). Each function keeps its own dip — see DIP_DEFAULTS / stepDip.
+function setImgFn(fn) {
+  S.imgFn = fn;
+  S.dipFactor = S.dipByFn[fn];
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1437,7 +1463,7 @@ const HELP_SECTIONS = [
   ["Mapping", [
     ["V / Shift+V","cycle palette"],
     ["F / Shift+F","cycle function"],
-    ["= / -","dip factor ±"],
+    ["= / -","+ lighter / − darker"],
     ["S","fit / full scale"],
   ]],
   ["Channels", [
@@ -1545,13 +1571,13 @@ function onKeyDown(e) {
       S.palette=((S.palette+(shift?-1:1))%NUM_PALETTES+NUM_PALETTES)%NUM_PALETTES; break;   // plain = next, Shift = previous
 
     case "f":case "F":
-      S.imgFn=((S.imgFn+(shift?-1:1))%NUM_FNS+NUM_FNS)%NUM_FNS;   // plain = next, Shift = previous
+      setImgFn(((S.imgFn+(shift?-1:1))%NUM_FNS+NUM_FNS)%NUM_FNS); // plain = next, Shift = previous
       recalcScale(); break;
 
-    case "=":case "+":
-      S.dipFactor*=1.25; recalcScale(); break;
-    case "-":
-      S.dipFactor/=1.25; recalcScale(); break;
+    case "=":case "+":                    // + = lighter (any function)
+      stepDip(true);  recalcScale(); break;
+    case "-":                             // − = darker
+      stepDip(false); recalcScale(); break;
 
     case "s":case "S":
       if(ctrl&&shift) {save("screenshot");break;}
@@ -1923,9 +1949,9 @@ function buildToolbar() {
   fnName.style.cssText="flex:1;text-align:center;";
   body.appendChild(row(
     lbl("function"),
-    btn("‹","[Shift+F] Previous transfer function",()=>{S.imgFn=((S.imgFn-1)%NUM_FNS+NUM_FNS)%NUM_FNS;recalcScale();refresh();}),
+    btn("‹","[Shift+F] Previous transfer function",()=>{setImgFn(((S.imgFn-1)%NUM_FNS+NUM_FNS)%NUM_FNS);recalcScale();refresh();}),
     fnName,
-    btn("›","[F] Next transfer function",()=>{S.imgFn=((S.imgFn+1)%NUM_FNS+NUM_FNS)%NUM_FNS;recalcScale();refresh();}),
+    btn("›","[F] Next transfer function",()=>{setImgFn(((S.imgFn+1)%NUM_FNS+NUM_FNS)%NUM_FNS);recalcScale();refresh();}),
   ));
 
   // ── Dip factor ──
@@ -1933,9 +1959,9 @@ function buildToolbar() {
   dipVal.style.cssText="flex:1;text-align:center;";
   const dipRow=row(
     lbl("dip"),
-    btn("−","[−] Decrease the dip factor — log/parabolic strength, or the gamma exponent (lower = brighter). No effect on 1:1.",()=>{S.dipFactor/=1.25;recalcScale();refresh();}),
+    btn("−","[−] Darker — steps the log/parabolic/gamma dip factor toward a darker image (no effect on 1:1)",()=>{stepDip(false);recalcScale();refresh();}),
     dipVal,
-    btn("+","[+] Increase the dip factor — log/parabolic strength, or the gamma exponent (higher = darker). No effect on 1:1.",()=>{S.dipFactor*=1.25;recalcScale();refresh();}),
+    btn("+","[+] Lighter — steps the dip factor toward a brighter image (no effect on 1:1)",()=>{stepDip(true);recalcScale();refresh();}),
   );
   body.appendChild(dipRow);
 
