@@ -1,6 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "pxlpeep",
+  "productName": "pxlpeep2",
+  "mainBinaryName": "pxlpeep2",
   "version": "26.7.0",
   "identifier": "io.emil.pxlpeep",
   "build": {
@@ -23,7 +24,7 @@
     "fileAssociations": [
       {
         "ext": ["png", "jpg", "jpeg", "gif", "webp", "avif", "bmp"],
-        "name": "pxlpeep.image",
+        "name": "pxlpeep2.image",
         "description": "Image",
         "role": "Viewer"
       }

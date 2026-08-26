@@ -50,7 +50,7 @@ pub fn run() {
       );
 
       WebviewWindowBuilder::new(app, "main", WebviewUrl::App("desktop.html".into()))
-        .title("pxlpeep")
+        .title("pxlpeep2")
         .inner_size(1000.0, 700.0)
         .initialization_script(&init)
         .build()?;
