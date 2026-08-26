@@ -23,7 +23,7 @@
     "fileAssociations": [
       {
         "ext": ["png", "jpg", "jpeg", "gif", "webp", "avif", "bmp"],
-        "name": "pxlpeep image",
+        "name": "pxlpeep.image",
         "description": "Image",
         "role": "Viewer"
       }
