@@ -13,7 +13,7 @@
     {
       "matches": ["<all_urls>"],
       "run_at": "document_start",
-      "js": ["content/takeover.js"]
+      "js": ["content/takeover.js", "content/imgdetect.js"]
     }
   ],
   "permissions": ["contextMenus"],

@@ -24,6 +24,7 @@ const root = path.resolve(__dirname, "..");
 // (Tauri desktop only), src-tauri/, test_images/, scripts/, node_modules/, docs.
 const FILES = [
   "content/takeover.js",
+  "content/imgdetect.js",
   "content/main.js",
   "background/worker.js",
   "viewer.html",
