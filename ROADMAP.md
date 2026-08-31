@@ -636,6 +636,9 @@ Advanced "true raw" inspection — low priority, research-y, and mostly only mea
 
 ## Done (recent sessions)
 
+- `dba44e1` — detect images under the cursor (`content/imgdetect.js`) so the pxlpeep menu
+  works on overlay-hidden / background / shadow-DOM images (Instagram); menu created hidden
+  and shown per right-click via pointer-move hover-sync (no dead entry on empty space).
 - `00c00f2` — fix sticky pan/ROI drag on off-window button release (pointer capture +
   self-heal; also un-sticks shift+drag ROI).
 - `c20700b` — context menu: "pxlpeep" submenu with View image (this tab) / Open image in

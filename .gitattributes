@@ -1,0 +1,6 @@
+# Keep line endings consistent (LF) across platforms so `npm run format:check`
+# (Prettier's endOfLine: "lf") passes everywhere, including Windows. The repo blobs are
+# already LF; this stops git's core.autocrlf from smudging text files to CRLF on checkout
+# (which otherwise makes format:check fail on Windows after any checkout/merge).
+# Binary files (images, fonts, etc.) are auto-detected by `text=auto` and left untouched.
+* text=auto eol=lf

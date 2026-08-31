@@ -21,7 +21,7 @@ Ported from the C++ original by shaperilio. Provenance noted at `content/main.js
   browsers diverge on exactly one key the build injects: **background** (Chrome `service_worker`,
   Firefox `scripts` — Firefox still has no background SW as of 2026). Both use the default
   **`"spanning"` incognito mode** (no `incognito` key) — see the incognito context-menu note below.
-  Permissions are just `contextMenus` + `host_permissions:["<all_urls>"]` — the content script's
+  Permissions are just `contextMenus` + `host_permissions:["<all_urls>"]` — the content scripts'
   `matches:["<all_urls>"]` drives injection; the host permission is only for the viewer's
   cross-origin image fetch.
 - **`content/takeover.js`** — the takeover. A `document_start`, `<all_urls>` content script. It
@@ -38,13 +38,33 @@ Ported from the C++ original by shaperilio. Provenance noted at `content/main.js
     `viewer.html` — our own extension origin, immune to the page's CSP/sandbox. That redirect's
     fetch lands in a different partition (re-download), but such responses are near-always
     no-store / auth'd = uncacheable anyway, so nothing is lost.
-- **`background/worker.js`** — MV3 background. No `webRequest`. Hosts the "pxlpeep" image
-  context menu (`contexts:["image"]`): an explicit parent — Chrome force-collapses 2+ items
-  into a submenu anyway — with **View image** (this tab, `tabs.update`) and **Open image in
-  new tab** (`tabs.create`), both opening `viewer.html?url=<srcUrl>`. The parent's icon is a
+- **`content/imgdetect.js`** — a second `document_start`, `<all_urls>` content script (isolated
+  world) that makes the context menu reach images the browser's own hit-test can't. Many sites
+  cover their `<img>` with a transparent overlay (Instagram), or paint the picture as a CSS
+  `background-image` / SVG `<image>` / `<video poster>`, so Chrome sees no image at the cursor and
+  the native `image` context never fires. This script finds the image URL under the pointer itself:
+  it walks the **full** hit-test stack (`elementsFromPoint` — which includes overlapping siblings,
+  descending into open shadow roots) reading `<img>` (srcset-resolved via `currentSrc`) / `poster` /
+  SVG / `background-image`, with a nearest-image fallback (largest image whose box contains the
+  point). It reports the URL to the background — see the menu-visibility note under `worker.js`.
+- **`background/worker.js`** — MV3 background. No `webRequest`. Hosts the "pxlpeep" context menu:
+  an explicit parent — Chrome force-collapses 2+ items into a submenu anyway — with **View image**
+  (this tab, `tabs.update`) and **Open image in new tab** (`tabs.create`), both opening
+  `viewer.html?url=<url>` (raw image URL in incognito — see below). The parent's icon is a
   Firefox-only `menus` feature added via UA sniff (Chrome throws on `icons` but decorates the
   top-level entry with the extension icon automatically). Also hosts the fallback-redirect
   message handler for `takeover.js`.
+  - **Menu visibility (why `contexts:["all"]` + created hidden):** an `image`-context menu would
+    miss overlay-hidden / background images, so the menu uses `contexts:["all"]` — but that alone
+    shows it as a dead entry on *every* right-click. So it's created **`visible:false`** and toggled
+    on only when `imgdetect.js` reports an image under the cursor. That report fires on
+    **pointer-move**, so the item is already shown/hidden *before* the menu opens on right-button
+    release — no race against the menu build (toggling at click time was unreliable on heavy pages
+    like Instagram, where the async update lost the race). The worker remembers the detected URL per
+    tab (`lastImg`) and uses it in `onClicked` when Chrome gives no `info.srcUrl`; visibility resets
+    to hidden on tab-switch / navigation, since the content script can't run on `chrome://` pages to
+    clear it there. Dev gotcha: reloading the unpacked extension doesn't re-inject content scripts
+    into already-open tabs — reload the page too, or the detector won't be running.
 - **`viewer.html` + `viewer.js`** — the **forced** entry point, used by both the context menu
   and the CSP/sandbox fallback. `viewer.js` parses `?url=` into `window.__pxlpeepImageUrl`; the
   HTML loads `viewer.js` then `content/main.js`. Because it's our own extension page it bypasses
