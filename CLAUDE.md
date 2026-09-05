@@ -46,7 +46,13 @@ Ported from the C++ original by shaperilio. Provenance noted at `content/main.js
   it walks the **full** hit-test stack (`elementsFromPoint` — which includes overlapping siblings,
   descending into open shadow roots) reading `<img>` (srcset-resolved via `currentSrc`) / `poster` /
   SVG / `background-image`, with a nearest-image fallback (largest image whose box contains the
-  point). It reports the URL to the background — see the menu-visibility note under `worker.js`.
+  point). To grab the image the user actually **sees**, it also scans for click-through
+  (`pointer-events:none`) images covering the point — which `elementsFromPoint` skips — then keeps
+  only the **effectively-visible** candidates (walking ancestors for `display`/`visibility`/`opacity`,
+  since lightboxes hide adjacent slides via a *container's* opacity while the `<img>` itself still
+  reads visible) and picks the **topmost by paint order** (hit-test depth → z-index → DOM order). That
+  makes a lightbox/carousel enlarged image win over gallery thumbnails behind the backdrop. It reports
+  the URL to the background — see the menu-visibility note under `worker.js`.
 - **`background/worker.js`** — MV3 background. No `webRequest`. Hosts the "pxlpeep" context menu:
   an explicit parent — Chrome force-collapses 2+ items into a submenu anyway — with **View image**
   (this tab, `tabs.update`) and **Open image in new tab** (`tabs.create`), both opening

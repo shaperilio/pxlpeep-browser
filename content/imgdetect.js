@@ -81,13 +81,69 @@
     return null;
   }
 
+  // Pick the image the user actually SEES under the point. Three stacking realities to handle:
+  //  - a plain <img>, or one behind a transparent overlay (Instagram) — found via the hit-test stack;
+  //  - a lightbox/carousel "enlarged" image shown click-through (pointer-events:none) over a backdrop,
+  //    which elementsFromPoint skips — so we'd otherwise grab a thumbnail behind it;
+  //  - several such slides stacked in the exact same box (current + prev/next), where only the current
+  //    is really visible: the adjacent ones are hidden by an ANCESTOR's opacity/visibility (their own
+  //    style still says visible), and the current one paints on top.
+  // Strategy: collect every image covering the point, keep only the effectively-visible ones, and pick
+  // the topmost by paint order (hit-test depth, then z-index, then DOM order).
   function imageUrlAt(x, y) {
     const stack = deepStack(x, y);
-    for (const el of stack) {
+    const rankOf = new Map();
+    stack.forEach((el, i) => rankOf.set(el, i));
+    // Paint rank: index in the hit-test stack (lower = more on top). A click-through image isn't in the
+    // stack, so borrow the rank of its nearest ancestor that IS (its lightbox/backdrop container).
+    const paintRank = (el) => {
+      for (let n = el; n; n = n.parentElement) {
+        const r = rankOf.get(n);
+        if (r !== undefined) return r;
+      }
+      return Infinity;
+    };
+    // Effectively visible: nothing up the ancestor chain is display:none / visibility:hidden / opacity:0.
+    // (A per-element opacity check misses adjacent lightbox slides hidden via their container's opacity.)
+    const effVisible = (el) => {
+      for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+        const cs = getComputedStyle(n);
+        if (cs.display === "none" || cs.visibility === "hidden") return false;
+        if (parseFloat(cs.opacity) === 0) return false;
+      }
+      return true;
+    };
+    const zOf = (el) => {
+      const z = parseInt(getComputedStyle(el).zIndex, 10);
+      return Number.isNaN(z) ? 0 : z;
+    };
+
+    const cands = [];
+    // Hit-testable images already under the point (topmost-first in the stack).
+    stack.forEach((el, i) => {
       const u = urlOfEl(el);
-      if (u) return u;
+      if (u && effVisible(el))
+        cands.push({ url: u, rank: i, z: zOf(el), dom: -1 });
+    });
+    // Click-through images covering the point (lightbox / carousel overlays). Rect-filter first so
+    // getComputedStyle / effVisible run only for the few images actually under the cursor.
+    let dom = 0;
+    for (const el of document.querySelectorAll("img, video[poster], image")) {
+      dom++;
+      const r = el.getBoundingClientRect();
+      if (r.width < 16 || r.height < 16) continue;
+      if (x < r.left || x > r.right || y < r.top || y > r.bottom) continue;
+      if (getComputedStyle(el).pointerEvents !== "none") continue; // hit-testable → already covered
+      if (!effVisible(el)) continue;
+      const u = urlOfEl(el);
+      if (u) cands.push({ url: u, rank: paintRank(el), z: zOf(el), dom });
     }
-    return nearestImage(stack[0] || document.elementFromPoint(x, y), x, y);
+    if (!cands.length) {
+      return nearestImage(stack[0] || document.elementFromPoint(x, y), x, y);
+    }
+    // Topmost wins: lowest paint rank, then highest z-index, then latest in DOM order (paints on top).
+    cands.sort((a, b) => a.rank - b.rank || b.z - a.z || b.dom - a.dom);
+    return cands[0].url;
   }
 
   let lastSent; // last url (string | null) sent to the background — used to dedupe
