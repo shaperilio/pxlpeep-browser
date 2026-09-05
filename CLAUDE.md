@@ -31,13 +31,19 @@ Ported from the C++ original by shaperilio. Provenance noted at `content/main.js
   web-accessible `content/main.js`). Running in the image document's own top-level context keeps
   the app's image fetch in the same **cache partition** the browser already populated — a hit,
   not a re-download. Same URL, no redirect.
-  - **Hybrid CSP/sandbox fallback:** some image responses are sandboxed and/or carry a strict
-    CSP (e.g. Google Photos sends `default-src 'none'` + sandbox), which blocks the injected
-    main-world script from ever running. `takeover.js` detects that the app UI
-    (`#pxlpeep-toolbar`) never appeared and messages the background to redirect the tab to
-    `viewer.html` — our own extension origin, immune to the page's CSP/sandbox. That redirect's
-    fetch lands in a different partition (re-download), but such responses are near-always
-    no-store / auth'd = uncacheable anyway, so nothing is lost.
+  - **Hybrid CSP/sandbox fallback:** some image responses carry a strict CSP (e.g. Bluesky and
+    Google Photos send `default-src 'none'`, sometimes with `sandbox`). Two distinct things can go
+    wrong, both handled by redirecting the tab to `viewer.html` (our own extension origin, immune to
+    the page CSP/sandbox): (1) the injected main-world `main.js` script is blocked outright
+    (`onerror`); (2) on Chrome — which lets the injected *extension* script run even under
+    `default-src 'none'` — that same CSP still blocks main.js's main-world **fetch** of the image, so
+    `onload` fires but nothing can display. So `onload` is NOT treated as success: `main.js` reports
+    the real outcome via a `data-pxlpeep-ok` / `data-pxlpeep-err` attribute on `<html>` (set in
+    `startLoad`) that `takeover.js` observes from its isolated world, and only a failure redirects.
+    The redirect's fetch lands in a different cache partition (re-download), but such responses are
+    near-always no-store / auth'd = uncacheable anyway. **Firefox** doesn't run content scripts on
+    `sandbox`-CSP pages at all, so a directly-opened such image can't be taken over there — it's
+    still reachable via the right-click pxlpeep menu from the host page.
 - **`content/imgdetect.js`** — a second `document_start`, `<all_urls>` content script (isolated
   world) that makes the context menu reach images the browser's own hit-test can't. Many sites
   cover their `<img>` with a transparent overlay (Instagram), or paint the picture as a CSS

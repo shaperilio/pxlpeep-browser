@@ -2233,6 +2233,12 @@ function showLoadError(err){
   setStatus(box);
 }
 
+// Tell the in-place takeover (content/takeover.js, isolated world) whether our image actually loaded,
+// via a <html> attribute it observes. On a CSP `default-src 'none'` page (e.g. Bluesky) Chrome lets our
+// injected script RUN but blocks its main-world fetch, so takeover must fall back to viewer.html (our
+// own origin, immune to the page CSP). No-op under viewer.html — nothing is watching there.
+function signalTakeover(ok){ try{document.documentElement.setAttribute(ok?"data-pxlpeep-ok":"data-pxlpeep-err","1");}catch(_){} }
+
 function startLoad(keepView){
   setStatus("Loading…");
   loadImage(S.imageUrl).then(img=>{
@@ -2244,7 +2250,8 @@ function startLoad(keepView){
     if(!keepView) zoomToFit();   // reload keeps the current zoom/pan; only the initial open fits
     refreshToolbar();
     requestFrame();
-  }).catch(showLoadError);
+    signalTakeover(true);
+  }).catch(err=>{ signalTakeover(false); showLoadError(err); });
 
   // EXIF async (best-effort; shares the single fetch, never surfaces errors)
   extractExif(S.imageUrl).then(exif=>{
